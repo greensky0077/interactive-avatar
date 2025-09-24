@@ -492,20 +492,15 @@ function App() {
         
         // Handle connection state changes
         if (peerConnection.iceConnectionState === 'disconnected') {
-          addStatus('Connection lost, attempting to reconnect...');
-          // Try to reconnect by creating a new answer
-          setTimeout(async () => {
-            try {
-              const newAnswer = await peerConnection.createAnswer();
-              await peerConnection.setLocalDescription(newAnswer);
-            } catch (error) {
-              addStatus('Reconnection failed: ' + error.message);
-            }
-          }, 1000);
+          addStatus('Connection lost. Please try creating a new session.');
         } else if (peerConnection.iceConnectionState === 'connected') {
-          addStatus('Connection restored!');
+          addStatus('Connection established!');
         } else if (peerConnection.iceConnectionState === 'failed') {
           addStatus('Connection failed. Please try creating a new session.');
+        } else if (peerConnection.iceConnectionState === 'checking') {
+          addStatus('Checking connection...');
+        } else if (peerConnection.iceConnectionState === 'completed') {
+          addStatus('Connection completed!');
         }
       };
 

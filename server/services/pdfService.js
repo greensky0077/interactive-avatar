@@ -199,7 +199,7 @@ class PDFService {
    */
   isValidText(text) {
     // Basic length check
-    if (text.length < 2 || text.length > 1000) return false;
+    if (text.length < 3 || text.length > 500) return false;
     
     // Must contain letters
     if (!/[A-Za-z]/.test(text)) return false;
@@ -210,22 +210,23 @@ class PDFService {
     // Must not be PDF structure data
     if (text.includes('/Type') || text.includes('/StructElem') || text.includes('/S') || 
         text.includes('/P') || text.includes('/Pg') || text.includes('/K') || 
-        text.includes('endobj') || text.includes('stream') || text.includes('endstream')) {
+        text.includes('endobj') || text.includes('stream') || text.includes('endstream') ||
+        text.includes('00000') || text.includes('obj') || text.includes('R>>')) {
       return false;
     }
-    
-    // Must not be object references
-    if (text.includes('00000 n') || text.includes('00000 obj')) return false;
     
     // Must not contain binary characters
     if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(text)) return false;
     
-    // More lenient validation - accept any text that looks readable
-    const hasReadableContent = /\b[a-zA-Z]{2,}\b/.test(text) || 
-                              /[a-zA-Z]{3,}/.test(text) ||
-                              /\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which|from|into|during|including|until|against|among|throughout|despite|towards|upon|concerning)\b/i.test(text);
+    // Must not contain excessive special characters
+    const specialCharCount = (text.match(/[^A-Za-z0-9\s.,!?;:'"()-]/g) || []).length;
+    if (specialCharCount > text.length * 0.2) return false;
     
-    return hasReadableContent;
+    // Must contain common English words or readable patterns
+    const commonWords = /\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which|from|into|during|including|until|against|among|throughout|despite|towards|upon|concerning|about|through|before|after|above|below|up|down|in|out|off|over|under|again|further|then|once|also|only|very|much|more|most|some|any|all|each|every|both|either|neither|not|no|yes|here|there|where|when|why|how|what|who|which|that|this|these|those|my|your|his|her|its|our|their)\b/i;
+    const readablePattern = /\b[a-zA-Z]{3,}\b/;
+    
+    return commonWords.test(text) || readablePattern.test(text);
   }
 
   /**
@@ -236,43 +237,65 @@ class PDFService {
   extractTextFallback(text) {
     let extractedText = '';
     
-    // Look for any text in parentheses that might be readable
+    // Look for text in parentheses that might be readable
     const parenMatches = text.match(/\(([^)]+)\)/g);
     if (parenMatches) {
       for (const match of parenMatches) {
         const cleanText = this.cleanTextContent(match);
-        if (cleanText.length > 2 && 
-            cleanText.length < 200 &&
-            /[A-Za-z]/.test(cleanText) &&
-            !/^[0-9\s\.]+$/.test(cleanText) &&
-            !cleanText.includes('/Type') &&
-            !cleanText.includes('endobj') &&
-            !cleanText.includes('stream') &&
-            !cleanText.includes('00000')) {
+        if (this.isValidFallbackText(cleanText)) {
           extractedText += cleanText + ' ';
         }
       }
     }
     
-    // Look for any readable text patterns
+    // Look for readable text patterns
     const textMatches = text.match(/[A-Za-z][A-Za-z0-9\s.,!?;:'"()-]{2,}/g);
     if (textMatches) {
       for (const text of textMatches) {
-        if (text.length > 5 && 
-            text.length < 100 &&
-            /[A-Za-z]/.test(text) &&
-            !/^[0-9\s\.]+$/.test(text) &&
-            !text.includes('/Type') &&
-            !text.includes('endobj') &&
-            !text.includes('stream') &&
-            !text.includes('00000') &&
-            !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(text)) {
+        if (this.isValidFallbackText(text)) {
           extractedText += text + ' ';
         }
       }
     }
     
     return extractedText;
+  }
+
+  /**
+   * @description Validate fallback text with very strict filtering
+   * @param {string} text - Text to validate
+   * @returns {boolean} True if valid text
+   */
+  isValidFallbackText(text) {
+    // Basic length check
+    if (text.length < 3 || text.length > 200) return false;
+    
+    // Must contain letters
+    if (!/[A-Za-z]/.test(text)) return false;
+    
+    // Must not be pure numbers
+    if (/^[0-9\s\.]+$/.test(text)) return false;
+    
+    // Must not contain PDF structure data
+    if (text.includes('/Type') || text.includes('/StructElem') || text.includes('/S') || 
+        text.includes('/P') || text.includes('/Pg') || text.includes('/K') || 
+        text.includes('endobj') || text.includes('stream') || text.includes('endstream') ||
+        text.includes('00000') || text.includes('obj') || text.includes('R>>')) {
+      return false;
+    }
+    
+    // Must not contain binary characters or special symbols
+    if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(text)) return false;
+    
+    // Must not contain excessive special characters
+    const specialCharCount = (text.match(/[^A-Za-z0-9\s.,!?;:'"()-]/g) || []).length;
+    if (specialCharCount > text.length * 0.3) return false;
+    
+    // Must contain common English words or readable patterns
+    const commonWords = /\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which|from|into|during|including|until|against|among|throughout|despite|towards|upon|concerning|about|through|before|after|above|below|up|down|in|out|off|over|under|again|further|then|once|also|only|very|much|more|most|some|any|all|each|every|both|either|neither|not|no|yes|here|there|where|when|why|how|what|who|which|that|this|these|those|my|your|his|her|its|our|their)\b/i;
+    const readablePattern = /\b[a-zA-Z]{3,}\b/;
+    
+    return commonWords.test(text) || readablePattern.test(text);
   }
 
   /**
