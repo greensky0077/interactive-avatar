@@ -478,7 +478,9 @@ function App() {
       peerConnection.onicecandidate = ({ candidate }) => {
         if (candidate && sessionInfo) {
           addStatus('Sending ICE candidate...');
-          handleICE(sessionInfo.session_id, candidate.toJSON());
+          handleICE(sessionInfo.session_id, candidate.toJSON()).catch(error => {
+            addStatus(`ICE candidate error: ${error.message}`);
+          });
         }
       };
 
@@ -492,7 +494,16 @@ function App() {
         
         // Handle connection state changes
         if (peerConnection.iceConnectionState === 'disconnected') {
-          addStatus('Connection lost. Please try creating a new session.');
+          addStatus('Connection lost. Attempting to restore...');
+          // Try to restore connection by gathering new ICE candidates
+          setTimeout(() => {
+            if (peerConnection.iceConnectionState === 'disconnected') {
+              addStatus('Connection could not be restored. Please create a new session.');
+              // Reset the connection state
+              setBotInitialized(false);
+              setShowVideo(false);
+            }
+          }, 3000);
         } else if (peerConnection.iceConnectionState === 'connected') {
           addStatus('Connection established!');
         } else if (peerConnection.iceConnectionState === 'failed') {
@@ -501,6 +512,10 @@ function App() {
           addStatus('Checking connection...');
         } else if (peerConnection.iceConnectionState === 'completed') {
           addStatus('Connection completed!');
+        } else if (peerConnection.iceConnectionState === 'new') {
+          addStatus('New connection state - ready to connect');
+        } else if (peerConnection.iceConnectionState === 'gathering') {
+          addStatus('Gathering ICE candidates...');
         }
       };
 
@@ -533,6 +548,20 @@ function App() {
 
       // Initialize AI bot
       await initializeBot();
+
+      // Add connection monitoring
+      const connectionMonitor = setInterval(() => {
+        if (peerConnection.iceConnectionState === 'disconnected' || 
+            peerConnection.iceConnectionState === 'failed') {
+          addStatus('Connection lost detected. Please create a new session.');
+          clearInterval(connectionMonitor);
+        }
+      }, 5000);
+      
+      // Clear monitor after 2 minutes
+      setTimeout(() => {
+        clearInterval(connectionMonitor);
+      }, 120000);
 
       // Set jitter buffer
       const receivers = peerConnection.getReceivers();
