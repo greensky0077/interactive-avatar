@@ -78,6 +78,12 @@ class PDFService {
         return contentText.trim();
       }
 
+      // Method 4: Fallback - simple text extraction with basic filtering
+      const fallbackText = this.extractTextFallback(text);
+      if (fallbackText.trim().length > 20) {
+        return fallbackText.trim();
+      }
+
       return 'PDF text extraction not available - this is a basic fallback. The PDF content could not be extracted using simple text parsing.';
     } catch (error) {
       logger.error('PDFService', 'Basic PDF extraction failed', { error: error.message });
@@ -193,7 +199,7 @@ class PDFService {
    */
   isValidText(text) {
     // Basic length check
-    if (text.length < 3 || text.length > 500) return false;
+    if (text.length < 2 || text.length > 1000) return false;
     
     // Must contain letters
     if (!/[A-Za-z]/.test(text)) return false;
@@ -214,11 +220,59 @@ class PDFService {
     // Must not contain binary characters
     if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(text)) return false;
     
-    // Must contain common English words or readable patterns
-    const commonWords = /\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which|from|into|during|including|until|against|among|throughout|despite|towards|upon|concerning|to|of|in|for|on|with|at|by|from|up|about|into|through|during|before|after|above|below|up|down|in|out|off|over|under|again|further|then|once)\b/i;
-    const readablePattern = /\b[a-z]{3,}\b/i;
+    // More lenient validation - accept any text that looks readable
+    const hasReadableContent = /\b[a-zA-Z]{2,}\b/.test(text) || 
+                              /[a-zA-Z]{3,}/.test(text) ||
+                              /\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which|from|into|during|including|until|against|among|throughout|despite|towards|upon|concerning)\b/i.test(text);
     
-    return commonWords.test(text) || readablePattern.test(text);
+    return hasReadableContent;
+  }
+
+  /**
+   * @description Fallback text extraction method
+   * @param {string} text - PDF text content
+   * @returns {string} Extracted text
+   */
+  extractTextFallback(text) {
+    let extractedText = '';
+    
+    // Look for any text in parentheses that might be readable
+    const parenMatches = text.match(/\(([^)]+)\)/g);
+    if (parenMatches) {
+      for (const match of parenMatches) {
+        const cleanText = this.cleanTextContent(match);
+        if (cleanText.length > 2 && 
+            cleanText.length < 200 &&
+            /[A-Za-z]/.test(cleanText) &&
+            !/^[0-9\s\.]+$/.test(cleanText) &&
+            !cleanText.includes('/Type') &&
+            !cleanText.includes('endobj') &&
+            !cleanText.includes('stream') &&
+            !cleanText.includes('00000')) {
+          extractedText += cleanText + ' ';
+        }
+      }
+    }
+    
+    // Look for any readable text patterns
+    const textMatches = text.match(/[A-Za-z][A-Za-z0-9\s.,!?;:'"()-]{2,}/g);
+    if (textMatches) {
+      for (const text of textMatches) {
+        if (text.length > 5 && 
+            text.length < 100 &&
+            /[A-Za-z]/.test(text) &&
+            !/^[0-9\s\.]+$/.test(text) &&
+            !text.includes('/Type') &&
+            !text.includes('endobj') &&
+            !text.includes('stream') &&
+            !text.includes('00000') &&
+            !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(text)) {
+          extractedText += text + ' ';
+        }
+      }
+    }
+    
+    return extractedText;
   }
 
   /**

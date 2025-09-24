@@ -477,12 +477,36 @@ function App() {
       // Setup ICE handling
       peerConnection.onicecandidate = ({ candidate }) => {
         if (candidate && sessionInfo) {
+          addStatus('Sending ICE candidate...');
           handleICE(sessionInfo.session_id, candidate.toJSON());
         }
       };
 
+      // Handle ICE gathering state changes
+      peerConnection.onicegatheringstatechange = () => {
+        addStatus(`ICE gathering state: ${peerConnection.iceGatheringState}`);
+      };
+
       peerConnection.oniceconnectionstatechange = () => {
         addStatus(`ICE connection state: ${peerConnection.iceConnectionState}`);
+        
+        // Handle connection state changes
+        if (peerConnection.iceConnectionState === 'disconnected') {
+          addStatus('Connection lost, attempting to reconnect...');
+          // Try to reconnect by creating a new answer
+          setTimeout(async () => {
+            try {
+              const newAnswer = await peerConnection.createAnswer();
+              await peerConnection.setLocalDescription(newAnswer);
+            } catch (error) {
+              addStatus('Reconnection failed: ' + error.message);
+            }
+          }, 1000);
+        } else if (peerConnection.iceConnectionState === 'connected') {
+          addStatus('Connection restored!');
+        } else if (peerConnection.iceConnectionState === 'failed') {
+          addStatus('Connection failed. Please try creating a new session.');
+        }
       };
 
       // Start session
