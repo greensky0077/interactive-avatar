@@ -42,19 +42,20 @@ class PDFService {
 
   /**
    * @description Extract text content from uploaded PDF file
-   * @param {string} filePath - Path to the PDF file
+   * @param {string|Buffer} fileOrBuffer - Path to the PDF file or Buffer
    * @returns {Promise<string>} Extracted text content
    */
-  async extractTextFromPDF(filePath) {
+  async extractTextFromPDF(fileOrBuffer) {
     try {
-      logger.info('PDFService', 'Extracting text from PDF', { filePath });
+      const isBuffer = Buffer.isBuffer(fileOrBuffer);
+      logger.info('PDFService', 'Extracting text from PDF', { source: isBuffer ? 'buffer' : 'path' });
       
-      // Check if file exists
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`PDF file not found: ${filePath}`);
+      // If a path is provided, validate exists
+      if (!isBuffer && !fs.existsSync(fileOrBuffer)) {
+        throw new Error(`PDF file not found: ${fileOrBuffer}`);
       }
       
-      const dataBuffer = fs.readFileSync(filePath);
+      const dataBuffer = isBuffer ? fileOrBuffer : fs.readFileSync(fileOrBuffer);
       const data = await pdfParse(dataBuffer);
       
       if (!data.text || data.text.trim().length === 0) {

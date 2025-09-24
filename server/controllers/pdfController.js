@@ -11,16 +11,8 @@ import { heygenService } from '../services/heygenService.js';
 import OpenAI from 'openai';
 
 // Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Use service-managed upload directory (works locally and on serverless like Vercel)
-    cb(null, pdfService.uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
+// Use in-memory storage for serverless compatibility; we will parse buffer directly
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage: storage,
@@ -55,9 +47,8 @@ export const uploadPDF = async (req, res) => {
       size: req.file.size 
     });
 
-    // Extract text from PDF (multer v2 may not include path)
-    const filePath = req.file.path || path.join(pdfService.uploadDir, req.file.filename);
-    const extractedText = await pdfService.extractTextFromPDF(filePath);
+    // Extract text from PDF buffer
+    const extractedText = await pdfService.extractTextFromPDF(req.file.buffer);
     
     // Process content for RAG
     const processedChunks = await pdfService.processPDFContent(extractedText);
