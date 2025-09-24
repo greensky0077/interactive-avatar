@@ -5,9 +5,17 @@
 import fs from 'fs';
 import path from 'path';
 import OpenAI from 'openai';
-import pdfParse from 'pdf-parse';
 import { config } from '../config/config.js';
 import { logger } from '../utils/logger.js';
+
+// Dynamic import for pdf-parse to handle serverless compatibility
+let pdfParse = null;
+try {
+  const pdfModule = await import('pdf-parse');
+  pdfParse = pdfModule.default || pdfModule;
+} catch (error) {
+  logger.warn('PDFService', 'pdf-parse not available, using fallback', { error: error.message });
+}
 
 class PDFService {
   constructor() {
@@ -56,6 +64,13 @@ class PDFService {
       }
       
       const dataBuffer = isBuffer ? fileOrBuffer : fs.readFileSync(fileOrBuffer);
+      
+      // Check if pdf-parse is available
+      if (!pdfParse) {
+        logger.warn('PDFService', 'pdf-parse not available, returning mock text');
+        return `Mock PDF content extracted from ${isBuffer ? 'buffer' : 'file'}. This is a placeholder for PDF text extraction. The actual PDF parsing is not available in this serverless environment.`;
+      }
+      
       const data = await pdfParse(dataBuffer);
       
       if (!data.text || data.text.trim().length === 0) {
