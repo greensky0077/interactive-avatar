@@ -435,6 +435,14 @@ function App() {
       const remoteDescription = new RTCSessionDescription(data.data.sdp);
       await newPeerConnection.setRemoteDescription(remoteDescription);
 
+      // Wait a moment for the state to update
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Verify the state is correct
+      if (newPeerConnection.signalingState !== 'have-remote-offer') {
+        throw new Error(`Failed to set remote description. Current state: ${newPeerConnection.signalingState}`);
+      }
+
       setPeerConnection(newPeerConnection);
       addStatus("Session creation completed");
       addStatus("Now you can click the start button to start the stream");
@@ -456,6 +464,13 @@ function App() {
     handleInfo("Starting Session", "Initializing WebRTC connection...");
 
     try {
+      // Check peer connection state before creating answer
+      if (peerConnection.signalingState !== 'have-remote-offer') {
+        addStatus(`Invalid signaling state: ${peerConnection.signalingState}. Expected: have-remote-offer`);
+        handleWarning("Connection Error", "Please create a new session first");
+        return;
+      }
+
       const localDescription = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(localDescription);
 
@@ -654,6 +669,18 @@ function App() {
     } catch (error) {
       addStatus("Error: " + (error as Error).message);
     }
+  };
+
+  // Reset peer connection state
+  const resetPeerConnection = () => {
+    if (peerConnection) {
+      peerConnection.close();
+      setPeerConnection(null);
+    }
+    setSessionInfo(null);
+    setBotInitialized(false);
+    setShowVideo(false);
+    addStatus("Connection state reset");
   };
 
   // Close the connection
@@ -923,7 +950,7 @@ function App() {
         <div className="bg-white rounded-xl shadow-md p-6 transition-all hover:shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-bold text-gray-800">
-              Persona Configuration
+              Persona config
             </h2>
             <Button
               onClick={() => setShowPersonaForm(!showPersonaForm)}
@@ -1136,6 +1163,12 @@ function App() {
                   variant="destructive"
                 >
                   Close
+                </Button>
+                <Button
+                  onClick={resetPeerConnection}
+                  variant="outline"
+                >
+                  Reset
                 </Button>
               </div>
             </div>
