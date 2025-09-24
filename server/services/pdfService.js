@@ -529,11 +529,19 @@ class PDFService {
         chunks: processedChunks
       };
 
-      // Store in memory instead of filesystem
+      // Store in memory for current session
       this.processedData.set(filename, dataToSave);
       
-      logger.info('PDFService', 'Processed data saved to memory', { filename, chunksCount: processedChunks.length });
-      return `memory:${filename}`;
+      // Also save to file for persistence across serverless invocations
+      const filePath = path.join(this.uploadDir, `${filename}.json`);
+      await fs.promises.writeFile(filePath, JSON.stringify(dataToSave, null, 2));
+      
+      logger.info('PDFService', 'Processed data saved to memory and file', { 
+        filename, 
+        chunksCount: processedChunks.length,
+        filePath
+      });
+      return `file:${filePath}`;
     } catch (error) {
       logger.error('PDFService', 'Failed to save processed data', { error: error.message });
       throw error;
@@ -554,17 +562,30 @@ class PDFService {
         return data;
       }
 
-      // Fallback to file system for backward compatibility
+      // Check new file format first
+      const newFilePath = path.join(this.uploadDir, `${filename}.json`);
+      if (fs.existsSync(newFilePath)) {
+        const data = JSON.parse(fs.readFileSync(newFilePath, 'utf8'));
+        // Also load into memory for faster access
+        this.processedData.set(filename, data);
+        logger.info('PDFService', 'Processed data loaded from new file format', { newFilePath });
+        return data;
+      }
+
+      // Fallback to old file format for backward compatibility
       const dataFilename = filename.replace('.pdf', '_processed.json');
       const dataPath = path.join(this.uploadDir, dataFilename);
       
-      if (!fs.existsSync(dataPath)) {
-        return null;
+      if (fs.existsSync(dataPath)) {
+        const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+        // Also load into memory for faster access
+        this.processedData.set(filename, data);
+        logger.info('PDFService', 'Processed data loaded from old file format', { dataPath });
+        return data;
       }
 
-      const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-      logger.info('PDFService', 'Processed data loaded from file', { dataPath });
-      return data;
+      logger.warn('PDFService', 'No processed data found', { filename });
+      return null;
     } catch (error) {
       logger.error('PDFService', 'Failed to load processed data', { error: error.message });
       return null;

@@ -152,12 +152,24 @@ export const listPDFs = async (req, res) => {
     
     if (fs.existsSync(uploadDir)) {
       const files = fs.readdirSync(uploadDir);
-      fileSystemPDFs = files
+      
+      // Check for PDF files
+      const pdfFiles = files
         .filter(file => file.endsWith('.pdf'))
         .map(file => ({
           filename: file,
           uploadDate: fs.statSync(path.join(uploadDir, file)).mtime
         }));
+      
+      // Check for JSON files (new format)
+      const jsonFiles = files
+        .filter(file => file.endsWith('.json') && !file.includes('_processed'))
+        .map(file => ({
+          filename: file.replace('.json', ''), // Remove .json extension
+          uploadDate: fs.statSync(path.join(uploadDir, file)).mtime
+        }));
+      
+      fileSystemPDFs = [...pdfFiles, ...jsonFiles];
     }
 
     // Combine and deduplicate
