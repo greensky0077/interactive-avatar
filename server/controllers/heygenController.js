@@ -1,28 +1,64 @@
 import { heygenService } from '../services/heygenService.js';
 import { logger } from '../utils/logger.js';
 import { persona } from '../utils/persona.js';
+import { config } from '../config/config.js';
 
-// Helper function to generate simple responses
-const generateSimpleAIResponse = (userQuery = "") => {
+// Helper function to generate AI responses using OpenAI
+const generateSimpleAIResponse = async (userQuery = "") => {
   if (!userQuery) {
     return `Hi there! I'm ${persona.name}, ${persona.title}. How can I help you today?`;
   }
   
-  if (userQuery.toLowerCase().includes('who are you') || userQuery.toLowerCase().includes('introduce yourself')) {
-    return `I'm ${persona.name}, a ${persona.education.year} student at ${persona.education.institution}, pursuing ${persona.education.degree}. I'm passionate about ${persona.personality.interests[0]} and ${persona.personality.interests[1]}.`;
+  // Check if OpenAI API key is configured
+  if (!config.openai.apiKey || config.openai.apiKey === 'your_openai_api_key_here') {
+    // Fallback to simple responses when API key not configured
+    if (userQuery.toLowerCase().includes('who are you') || userQuery.toLowerCase().includes('introduce yourself')) {
+      return `I'm ${persona.name}, a ${persona.education.year} student at ${persona.education.institution}, pursuing ${persona.education.degree}. I'm passionate about ${persona.personality.interests[0]} and ${persona.personality.interests[1]}.`;
+    }
+    
+    if (userQuery.toLowerCase().includes('project') || userQuery.toLowerCase().includes('work')) {
+      const projects = persona.technical.projects.slice(0, 2).join(' and ');
+      return `I've worked on several projects including ${projects}. I'm comfortable with ${persona.technical.languages.join(', ')} for programming.`;
+    }
+    
+    if (userQuery.toLowerCase().includes('goal') || userQuery.toLowerCase().includes('plan')) {
+      return `Currently, I'm focused on ${persona.personality.goals[0]} and ${persona.personality.goals[1]}.`;
+    }
+    
+    return `Thanks for asking! As someone who's ${persona.traits[0]} and ${persona.traits[1]}, I'm always excited to talk about ${persona.personality.interests[Math.floor(Math.random() * persona.personality.interests.length)]}.`;
   }
   
-  if (userQuery.toLowerCase().includes('project') || userQuery.toLowerCase().includes('work')) {
-    const projects = persona.technical.projects.slice(0, 2).join(' and ');
-    return `I've worked on several projects including ${projects}. I'm comfortable with ${persona.technical.languages.join(', ')} for programming.`;
+  // Use OpenAI for AI responses
+  try {
+    const { default: OpenAI } = await import('openai');
+    const openai = new OpenAI({ apiKey: config.openai.apiKey });
+    
+    const personaPrompt = `You are ${persona.name}, ${persona.title}. 
+    Education: ${persona.education.degree} (${persona.education.year}) at ${persona.education.institution}
+    Technical Skills: ${persona.technical.languages.join(', ')} and ${persona.technical.webStack.join(', ')}
+    Projects: ${persona.technical.projects.join(', ')}
+    Personality: ${persona.personality.style}
+    Interests: ${persona.personality.interests.join(', ')}
+    Goals: ${persona.personality.goals.join(', ')}
+    Traits: ${persona.traits.join(', ')}
+    
+    Respond as ${persona.name} would, maintaining their personality and style. Keep responses conversational and natural.`;
+    
+    const completion = await openai.chat.completions.create({
+      model: config.openai.model,
+      messages: [
+        { role: 'system', content: personaPrompt },
+        { role: 'user', content: userQuery }
+      ],
+      max_tokens: 200,
+      temperature: 0.8
+    });
+    
+    return completion.choices[0].message.content;
+  } catch (error) {
+    logger.error('HeygenController', 'OpenAI response generation failed', { error: error.message });
+    return `I'm ${persona.name} and I'd love to help, but I'm having trouble processing that right now. Could you try asking me something else?`;
   }
-  
-  if (userQuery.toLowerCase().includes('goal') || userQuery.toLowerCase().includes('plan')) {
-    return `Currently, I'm focused on ${persona.personality.goals[0]} and ${persona.personality.goals[1]}.`;
-  }
-  
-  // Generic response for other queries
-  return `Thanks for asking! As someone who's ${persona.traits[0]} and ${persona.traits[1]}, I'm always excited to talk about ${persona.personality.interests[Math.floor(Math.random() * persona.personality.interests.length)]}.`;
 };
 
 export const initializeHeygenBot = async (req, res) => {
@@ -56,17 +92,14 @@ export const createHeygenSession = async (req, res) => {
     const { avatar_name, voice_id } = req.body;
     const disable_idle_timeout = true
 
+    // Use defaults from config if not provided
+    const finalAvatarName = avatar_name || config.heygen.defaultAvatarName;
+    // Only use voice_id if it's provided and not null/empty
+    const finalVoiceId = (voice_id && voice_id.trim() !== '') ? voice_id : null;
     
-    if (!avatar_name) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: avatar_name'
-      });
-    }
-    
-    logger.info('HeygenController', 'Creating new Heygen session', { avatar_name, voice_id });
-    const sessionInfo = await heygenService.createSession(avatar_name, voice_id,disable_idle_timeout);
-    console.log(sessionInfo);
+    logger.info('HeygenController', 'Creating new Heygen session', { avatar_name: finalAvatarName, voice_id: finalVoiceId });
+    const sessionInfo = await heygenService.createSession(finalAvatarName, finalVoiceId, disable_idle_timeout);
+    // session info obtained
 
     
     res.json({
@@ -158,7 +191,7 @@ export const sendHeygenText = async (req, res) => {
     // If AI response generation is requested, generate a simple response
     if (generate_ai_response) {
       logger.info('HeygenController', 'Generating AI response for user input', { text });
-      finalText = generateSimpleAIResponse(text);
+      finalText = await generateSimpleAIResponse(text);
       logger.info('HeygenController', 'AI response generated', { aiResponse: finalText });
     }
 

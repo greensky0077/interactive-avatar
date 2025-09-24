@@ -1,22 +1,25 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Debug: Log environment variable
+
 export const config = {
   heygen: {
     apiKey: process.env.HEYGEN_APIKEY,
     serverUrl: process.env.HEYGEN_SERVER_URL,
     defaultQuality: 'low',
+    defaultAvatarName: 'Katya_ProfessionalLook2_public',
+    defaultVoiceId: '73c0b6a2e29d4d38aca41454bf58c955',
   },
-  gemini: {
-    apiKey: process.env.GEMINI_APIKEY,
-    model: 'gemini-2.0-flash',
+  openai: {
+    apiKey: process.env.OPENAI_APIKEY,
+    model: 'gpt-4o',
     config: {
       temperature: 0.9,
-      topP: 0.1,
-      topK: 16,
-      maxOutputTokens: 2048,
-      candidateCount: 1,
-      stopSequences: [],
+      max_tokens: 2048,
+      top_p: 0.1,
+      frequency_penalty: 0,
+      presence_penalty: 0,
     },
   },
 };

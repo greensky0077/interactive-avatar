@@ -1,10 +1,11 @@
 import { config } from '../config/config.js';
 import { logger } from '../utils/logger.js';
 import { persona } from '../utils/persona.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 
-const genAI = new GoogleGenerativeAI(config.gemini_api_key);
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+const openai = new OpenAI({
+  apiKey: config.openai.apiKey,
+});
 
 const getPersonaPrompt = () => {
   return `From today your identity is ${persona.name}.
@@ -33,35 +34,61 @@ Current Goals:
 ${persona.personality.goals.join('\n')}`;
 };
 
-const generateGeminiResponse = async (prompt) => {
+const generateOpenAIResponse = async (prompt) => {
   const personaPrompt = getPersonaPrompt();
-  const chat = model.startChat({
-    history: [
-      {
-        role: 'user',
-        parts: [`Act like ${persona.name}, a formal corporate employee.`]
-      },
-      {
-        role: 'model',
-        parts: [`Understood. Responding as ${persona.name} professionally.`]
-      },
-      {
-        role: 'user',
-        parts: [personaPrompt]
-      }
-    ]
-  });
-  const result = await chat.sendMessage(prompt);
-  return result.response.text();
+  
+  try {
+    const completion = await openai.chat.completions.create({
+      model: config.openai.model,
+      messages: [
+        {
+          role: 'system',
+          content: `Act like ${persona.name}, a formal corporate employee. ${personaPrompt}`
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      ...config.openai.config
+    });
+    
+    return completion.choices[0].message.content;
+  } catch (error) {
+    logger.error('OpenAI', 'Error generating response', { error: error.message });
+    throw new Error(`OpenAI API error: ${error.message}`);
+  }
 };
 
 export const InitializeBot = async (req, res) => {
   logger.info('Server', 'Initializing AI service');
   try {
-    const result = await model.generateContent([
-      { role: 'user', parts: ['You are now initialized. Be ready to chat.'] }
-    ]);
-    const text = result.response.text();
+    // Check if API key is configured
+    if (!config.openai.apiKey || config.openai.apiKey === 'your_openai_api_key_here') {
+      logger.warn('OpenAI', 'API key not configured, returning mock response');
+      return res.json({
+        success: true,
+        message: 'AI service initialized successfully (mock mode)',
+        text: `Hello! I'm ${persona.name} and I'm ready to chat. Note: OpenAI API key not configured, using mock responses.`
+      });
+    }
+
+    const result = await openai.chat.completions.create({
+      model: config.openai.model,
+      messages: [
+        {
+          role: 'system',
+          content: `You are ${persona.name}. You are now initialized and ready to chat.`
+        },
+        {
+          role: 'user',
+          content: 'You are now initialized. Be ready to chat.'
+        }
+      ],
+      max_tokens: 100
+    });
+    
+    const text = result.choices[0].message.content;
 
     logger.info('Server', 'AI service initialized successfully');
     res.json({
@@ -83,7 +110,18 @@ export const AIChatResponse = async (req, res) => {
   logger.info('Server', 'Processing AI chat request');
   try {
     const userPrompt = req.body.prompt;
-    const text = await generateGeminiResponse(userPrompt);
+    
+    // Check if API key is configured
+    if (!config.openai.apiKey || config.openai.apiKey === 'your_openai_api_key_here') {
+      logger.warn('OpenAI', 'API key not configured, returning mock response');
+      return res.json({
+        success: true,
+        message: 'AI response generated successfully (mock mode)',
+        text: `As ${persona.name}, I understand you're asking: "${userPrompt}". This is a mock response since OpenAI API key is not configured. Please add your OpenAI API key to get real AI responses.`
+      });
+    }
+    
+    const text = await generateOpenAIResponse(userPrompt);
 
     logger.info('Server', 'AI response generated successfully');
     res.json({

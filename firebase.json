@@ -1,0 +1,23 @@
+{
+  "functions": {
+    "source": "server",
+    "runtime": "nodejs20"
+  },
+  "hosting": [
+    {
+      "site": "interactive-test-avatar",
+      "public": "react-avatar-app/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        { "source": "/persona/**", "function": "api" },
+        { "source": "/openai/**", "function": "api" },
+        { "source": "/pdf/**", "function": "api" },
+        { "source": "**", "destination": "/index.html" }
+      ]
+    }
+  ]
+}

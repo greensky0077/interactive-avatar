@@ -156,3 +156,33 @@ This project is licensed under the ISC License.
 ## 🙏 Acknowledgments
 
 - Thanks to all contributors who have helped shape this project 
+
+# Streaming-Avatar
+
+## Deploying the frontend to Firebase Hosting
+
+1. Install Firebase CLI:
+   ```bash
+   npm i -g firebase-tools
+   ```
+2. Login and set project:
+   ```bash
+   firebase login
+   firebase use YOUR_FIREBASE_PROJECT_ID
+   ```
+3. Build the frontend:
+   ```bash
+   cd react-avatar-app
+   npm ci
+   npm run build
+   cd ..
+   ```
+4. Deploy:
+   ```bash
+   firebase deploy --only hosting
+   ```
+
+Notes:
+- Update `.firebaserc` and `firebase.json` to your project/site IDs.
+- Configure `VITE_SERVER_URL` in your Firebase Hosting environment if your API runs elsewhere. Locally you can set it in `react-avatar-app/.env`.
+- The server (Express) is not deployed by Firebase Hosting; host it separately (e.g., Render, Railway, Fly, or Firebase Functions). Set `VITE_SERVER_URL` to that server URL. 
