@@ -10,9 +10,12 @@ import { logger } from '../utils/logger.js';
 
 class PDFService {
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: config.openai.apiKey,
-    });
+    // Initialize OpenAI client only when an API key is present
+    if (config.openai.apiKey && config.openai.apiKey !== '') {
+      this.openai = new OpenAI({ apiKey: config.openai.apiKey });
+    } else {
+      this.openai = null;
+    }
     this.uploadDir = 'uploads';
     this.ensureUploadDir();
   }
@@ -145,6 +148,11 @@ class PDFService {
         return new Array(1536).fill(0).map(() => Math.random() - 0.5);
       }
       
+      if (!this.openai) {
+        logger.warn('PDFService', 'OpenAI client not initialized, returning mock embedding');
+        return new Array(1536).fill(0).map(() => Math.random() - 0.5);
+      }
+
       const response = await this.openai.embeddings.create({
         model: 'text-embedding-3-small',
         input: text,
