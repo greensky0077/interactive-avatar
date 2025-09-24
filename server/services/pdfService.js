@@ -65,24 +65,28 @@ class PDFService {
       if (textMatches) {
         let extractedText = '';
         for (const match of textMatches) {
-          // Extract text content from PDF text objects, but filter out numbers and symbols
+          // Extract text content from PDF text objects
           const textContent = match.match(/\(([^)]+)\)/g);
           if (textContent) {
             for (const content of textContent) {
               const cleanText = content.replace(/[()]/g, '').replace(/\\n/g, '\n').replace(/\\r/g, '\r');
-              // Filter out pure numbers, object references, and short meaningless strings
-              if (cleanText.length > 3 && 
-                  !/^\d+$/.test(cleanText) && 
-                  !/^[0-9\s]+$/.test(cleanText) &&
-                  !/^[0-9\s\.]+$/.test(cleanText) &&
+              // Very strict filtering for readable text only
+              if (cleanText.length > 5 && 
+                  cleanText.length < 200 &&
                   /[A-Za-z]/.test(cleanText) &&
-                  !/^[A-Za-z0-9\s.,!?;:'"()-]{1,3}$/.test(cleanText)) {
+                  !/^[0-9\s\.]+$/.test(cleanText) &&
+                  !/^[A-Za-z0-9\s.,!?;:'"()-]{1,5}$/.test(cleanText) &&
+                  // Must contain common English words or readable patterns
+                  (/\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which)\b/i.test(cleanText) ||
+                   /\b[a-z]{3,}\b/i.test(cleanText)) &&
+                  // Avoid binary/encoded content
+                  !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(cleanText)) {
                 extractedText += cleanText + ' ';
               }
             }
           }
         }
-        if (extractedText.trim().length > 20) {
+        if (extractedText.trim().length > 30) {
           return extractedText.trim();
         }
       }
@@ -93,27 +97,32 @@ class PDFService {
         let extractedText = '';
         for (const match of parenText) {
           const cleanText = match.replace(/[()]/g, '').replace(/\\n/g, '\n').replace(/\\r/g, '\r');
-          // More strict filtering for meaningful text
-          if (cleanText.length > 5 && 
+          // Very strict filtering for meaningful text
+          if (cleanText.length > 8 && 
+              cleanText.length < 150 &&
               /[A-Za-z]/.test(cleanText) &&
-              !/^[A-Za-z0-9\s.,!?;:'"()-]{1,5}$/.test(cleanText) &&
-              !/^[A-Za-z0-9\s.,!?;:'"()-]{6,}$/.test(cleanText) ||
-              (cleanText.length > 10 && /[A-Za-z]{3,}/.test(cleanText))) {
+              !/^[0-9\s\.]+$/.test(cleanText) &&
+              // Must contain common English words
+              (/\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which)\b/i.test(cleanText) ||
+               /\b[a-z]{3,}\b/i.test(cleanText)) &&
+              // Avoid binary/encoded content
+              !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(cleanText)) {
             extractedText += cleanText + ' ';
           }
         }
-        if (extractedText.trim().length > 20) {
+        if (extractedText.trim().length > 30) {
           return extractedText.trim();
         }
       }
 
-      // Method 3: Look for readable text patterns with better filtering
-      const readableText = text.match(/[A-Za-z][A-Za-z0-9\s.,!?;:'"()-]{5,}/g);
+      // Method 3: Look for readable text patterns with very strict filtering
+      const readableText = text.match(/[A-Za-z][A-Za-z0-9\s.,!?;:'"()-]{8,}/g);
       if (readableText) {
         let filteredText = '';
         for (const text of readableText) {
-          // Much stricter filtering to avoid compressed/encoded content
-          if (text.length > 10 && 
+          // Very strict filtering to avoid any binary/encoded content
+          if (text.length > 15 && 
+              text.length < 100 &&
               !/^\d+$/.test(text) && 
               !/^[0-9\s\.]+$/.test(text) &&
               !/^[0-9\s]+$/.test(text) &&
@@ -122,39 +131,22 @@ class PDFService {
               !text.includes('00000 obj') &&
               !text.includes('stream') &&
               !text.includes('endstream') &&
-              !/^[A-Za-z0-9\s.,!?;:'"()-]{1,10}$/.test(text) &&
-              // Avoid compressed/encoded content patterns
-              !/^[A-Za-z0-9\s.,!?;:'"()-]{11,}$/.test(text) ||
-              // Allow longer text only if it contains common words
-              (text.length > 20 && (
-                /\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall)\b/i.test(text) ||
-                /\b(and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall)\b/i.test(text)
-              ))) {
+              !text.includes('/Type') &&
+              !text.includes('/StructElem') &&
+              !text.includes('/S') &&
+              !text.includes('/P') &&
+              !text.includes('/Pg') &&
+              !text.includes('/K') &&
+              !text.includes('endobj') &&
+              // Must contain common English words
+              (/\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which)\b/i.test(text) ||
+               /\b[a-z]{3,}\b/i.test(text)) &&
+              // Avoid binary/encoded content
+              !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(text)) {
             filteredText += text + ' ';
           }
         }
-        if (filteredText.trim().length > 20) {
-          return filteredText.trim();
-        }
-      }
-
-      // Method 4: Look for text that looks like actual content (not compressed)
-      const contentText = text.match(/[A-Za-z][A-Za-z0-9\s.,!?;:'"()-]{10,50}/g);
-      if (contentText) {
-        let filteredText = '';
-        for (const text of contentText) {
-          // Only include text that looks like actual readable content
-          if (text.length > 10 && 
-              text.length < 100 &&
-              /[A-Za-z]/.test(text) &&
-              !/^[A-Za-z0-9\s.,!?;:'"()-]{1,10}$/.test(text) &&
-              // Must contain common English words or patterns
-              (/\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall)\b/i.test(text) ||
-               /\b[a-z]{3,}\b/i.test(text))) {
-            filteredText += text + ' ';
-          }
-        }
-        if (filteredText.trim().length > 20) {
+        if (filteredText.trim().length > 30) {
           return filteredText.trim();
         }
       }
