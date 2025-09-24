@@ -897,16 +897,30 @@ function App() {
       return;
     }
 
+    // Check if we have an active connection before uploading
+    if (peerConnection && peerConnection.iceConnectionState !== 'connected') {
+      addStatus('No active connection. Please establish connection before uploading PDF.');
+      handleWarning("Connection Required", "Please establish a stable connection before uploading PDFs.");
+      return;
+    }
+
     addStatus("Uploading PDF...");
     handleInfo("Uploading PDF", "Processing document for knowledge base...");
     const formData = new FormData();
     formData.append('pdf', file);
 
     try {
+      // Use a timeout to prevent hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const response = await fetch(SERVER_URL + "/pdf/upload", {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -924,15 +938,41 @@ function App() {
       addStatus(`PDF uploaded successfully: ${data.data.filename}`);
       setUploadedPDFs(prev => [...prev, { filename: data.data.filename, uploadDate: new Date() }]);
       handleSuccess("PDF Uploaded", `Successfully uploaded and processed: ${data.data.filename}`);
+      
+      // Check connection status after upload
+      if (peerConnection) {
+        addStatus(`Connection status after upload: ${peerConnection.iceConnectionState}`);
+        if (peerConnection.iceConnectionState === 'disconnected') {
+          addStatus('Connection lost during PDF upload. Attempting to restore...');
+          try {
+            await peerConnection.restartIce();
+            addStatus('ICE restart initiated after PDF upload.');
+          } catch (error) {
+            addStatus(`Failed to restart ICE after PDF upload: ${error.message}`);
+          }
+        }
+      }
     } catch (error) {
-      addStatus(`Error uploading PDF: ${error}`);
-      handleApiError(error, "PDF Upload");
+      if (error.name === 'AbortError') {
+        addStatus('PDF upload timed out. Please try again.');
+        handleWarning("Upload Timeout", "PDF upload timed out. Please try again.");
+      } else {
+        addStatus(`Error uploading PDF: ${error}`);
+        handleApiError(error, "PDF Upload");
+      }
     }
   };
 
   const searchPDF = async () => {
     if (!selectedPDF || !pdfQuery) {
       handleWarning("Search Parameters Required", "Please select a PDF and enter a query");
+      return;
+    }
+
+    // Check connection stability before search
+    if (peerConnection && peerConnection.iceConnectionState !== 'connected') {
+      addStatus('Connection unstable. Please wait for stable connection before searching.');
+      handleWarning("Connection Required", "Please ensure stable connection before searching PDFs.");
       return;
     }
 
@@ -976,6 +1016,13 @@ function App() {
   const askWithPDF = async (speak: boolean) => {
     if (!selectedPDF || !pdfQuery) {
       handleWarning("Ask Parameters Required", "Please select a PDF and enter a query");
+      return;
+    }
+
+    // Check connection stability before asking
+    if (peerConnection && peerConnection.iceConnectionState !== 'connected') {
+      addStatus('Connection unstable. Please wait for stable connection before asking.');
+      handleWarning("Connection Required", "Please ensure stable connection before asking PDFs.");
       return;
     }
 
