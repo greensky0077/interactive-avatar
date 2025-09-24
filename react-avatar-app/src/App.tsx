@@ -30,7 +30,8 @@ interface PersonaConfig {
 
 // Backend API base URL (configurable via Vite env)
 // Define VITE_SERVER_URL in .env or deployment environment
-const SERVER_URL = (import.meta.env.VITE_SERVER_URL as string) || "http://localhost:3000";
+// Default to same-origin for deployments like Vercel where API lives under /api
+const SERVER_URL = (import.meta.env.VITE_SERVER_URL as string) || "";
 function App() {
   const { handleApiError, handleSuccess, handleWarning, handleInfo } = useApiErrorHandler();
   
