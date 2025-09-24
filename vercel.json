@@ -1,7 +1,14 @@
 {
   "version": 2,
   "builds": [
-    { "src": "react-avatar-app/package.json", "use": "@vercel/static-build", "config": { "distDir": "react-avatar-app/dist" } },
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "react-avatar-app/dist",
+        "buildCommand": "npm --prefix react-avatar-app ci && npm --prefix react-avatar-app run build"
+      }
+    },
     { "src": "api/index.mjs", "use": "@vercel/node" }
   ],
   "routes": [
