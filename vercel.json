@@ -1,10 +1,10 @@
 {
   "version": 2,
   "builds": [
-    { "src": "server/server.js", "use": "@vercel/node" }
+    { "src": "api/index.mjs", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "server/server.js" }
+    { "src": "/(.*)", "dest": "/api/index.mjs" }
   ],
   "buildCommand": "npm --prefix react-avatar-app ci && npm --prefix react-avatar-app run build && npm --prefix server ci"
 }
