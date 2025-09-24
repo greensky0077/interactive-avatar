@@ -12,10 +12,14 @@
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
+    "faiss-node": "^0.4.1",
     "mime-types": "^3.0.1",
     "multer": "^2.0.2",
     "openai": "^5.23.0",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "pdfplumber": "^0.10.3",
+    "pypdf2": "^3.0.1",
+    "sentence-transformers": "^0.0.1"
   },
   "scripts": {
     "start": "node server.js",

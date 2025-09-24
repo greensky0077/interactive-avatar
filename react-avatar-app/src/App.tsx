@@ -887,7 +887,7 @@ function App() {
     setShowVideo(false);
   };
 
-  // PDF Upload Functions
+  // RAG PDF Upload Functions
   const handlePDFUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -904,17 +904,17 @@ function App() {
       return;
     }
 
-    addStatus("Uploading PDF...");
-    handleInfo("Uploading PDF", "Processing document for knowledge base...");
+    addStatus("Uploading PDF for RAG processing...");
+    handleInfo("Uploading PDF", "Processing document with RAG (Retrieval Augmented Generation)...");
     const formData = new FormData();
     formData.append('pdf', file);
 
     try {
       // Use a timeout to prevent hanging
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for RAG processing
 
-      const response = await fetch(SERVER_URL + "/pdf/upload", {
+      const response = await fetch(SERVER_URL + "/rag/upload", {
         method: 'POST',
         body: formData,
         signal: controller.signal,
@@ -935,9 +935,9 @@ function App() {
       }
 
       const data = await response.json();
-      addStatus(`PDF uploaded successfully: ${data.data.filename}`);
+      addStatus(`PDF processed with RAG: ${data.data.filename} (${data.data.chunksCount} chunks)`);
       setUploadedPDFs(prev => [...prev, { filename: data.data.filename, uploadDate: new Date() }]);
-      handleSuccess("PDF Uploaded", `Successfully uploaded and processed: ${data.data.filename}`);
+      handleSuccess("PDF Processed with RAG", `Successfully processed: ${data.data.filename} with ${data.data.chunksCount} knowledge chunks`);
       
       // Check connection status after upload
       if (peerConnection) {
@@ -976,10 +976,10 @@ function App() {
       return;
     }
 
-    addStatus("Searching PDF...");
-    handleInfo("Searching PDF", "Looking for relevant content in your document...");
+    addStatus("Searching PDF with RAG...");
+    handleInfo("Searching PDF", "Using RAG to find relevant content in your document...");
     try {
-      const response = await fetch(SERVER_URL + "/pdf/search", {
+      const response = await fetch(SERVER_URL + "/rag/search", {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1004,11 +1004,11 @@ function App() {
 
       const data = await response.json();
       setPdfResults(data.data.results);
-      addStatus(`Found ${data.data.totalResults} relevant results`);
-      handleSuccess("Search Complete", `Found ${data.data.totalResults} relevant results in your PDF`);
+      addStatus(`Found ${data.data.totalResults} relevant chunks using RAG`);
+      handleSuccess("RAG Search Complete", `Found ${data.data.totalResults} relevant chunks using vector similarity search`);
     } catch (error) {
       addStatus(`Error searching PDF: ${error}`);
-      handleApiError(error, "PDF Search");
+      handleApiError(error, "RAG Search");
     }
   };
 
@@ -1026,17 +1026,14 @@ function App() {
       return;
     }
 
-    addStatus(speak ? "Asking with PDF and speaking..." : "Asking with PDF...");
+    addStatus(speak ? "Asking with RAG and speaking..." : "Asking with RAG...");
     try {
-      const response = await fetch(SERVER_URL + "/pdf/ask", {
+      const response = await fetch(SERVER_URL + "/rag/ask", {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           filename: selectedPDF,
-          query: pdfQuery,
-          speak,
-          session_id: speak && sessionInfo ? sessionInfo.session_id : undefined,
-          limit: 3
+          query: pdfQuery
         })
       });
 
@@ -1052,9 +1049,22 @@ function App() {
       setRagAnswer(data.data.answer || "");
       setPdfResults(data.data.references || []);
       setMessage(data.data.answer || message);
-      addStatus("RAG answer generated" + (speak ? " and spoken by avatar" : ""));
+      addStatus(`RAG answer generated (confidence: ${(data.data.confidence * 100).toFixed(1)}%)` + (speak ? " and spoken by avatar" : ""));
       if (data.data?.answer) {
         addTranscript('bot', data.data.answer, 'rag');
+      }
+      
+      // If speak is true and we have a stable connection, speak the answer
+      if (speak && botInitialized && peerConnection && peerConnection.iceConnectionState === 'connected') {
+        addStatus("Speaking RAG answer via avatar...");
+        try {
+          await speakText(data.data.answer);
+          addStatus("RAG answer spoken successfully");
+        } catch (error) {
+          addStatus(`Error speaking RAG answer: ${error}`);
+        }
+      } else if (speak) {
+        addStatus("Cannot speak: Bot not initialized or connection not stable");
       }
     } catch (error) {
       addStatus(`Error asking with PDF: ${error}`);

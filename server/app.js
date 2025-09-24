@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import personaRouter from './routes/personaRoutes.js';
 import chatRouter from './routes/chatRouter.js';
 import pdfRouter from './routes/pdfRoutes.js';
+import ragRouter from './routes/ragRoutes.js';
 
 dotenv.config();
 
@@ -16,6 +17,7 @@ app.use(cors());
 app.use('/persona', personaRouter);
 app.use('/openai', chatRouter);
 app.use('/pdf', pdfRouter);
+app.use('/rag', ragRouter);
 
 // Serve React frontend static files when running on platforms like Vercel
 const __filename = fileURLToPath(import.meta.url);
@@ -27,7 +29,7 @@ app.use(express.static(frontendDist));
 
 // SPA fallback: send index.html for unmatched non-API routes
 app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/persona') || req.path.startsWith('/openai') || req.path.startsWith('/pdf')) {
+  if (req.path.startsWith('/persona') || req.path.startsWith('/openai') || req.path.startsWith('/pdf') || req.path.startsWith('/rag')) {
     return next();
   }
   res.sendFile(path.join(frontendDist, 'index.html'));
