@@ -7,8 +7,19 @@ import { uploadPDF, searchPDF, listPDFs, uploadMiddleware, askPDF } from '../con
 
 const router = express.Router();
 
-// Upload PDF file
-router.post('/upload', uploadMiddleware, uploadPDF);
+// Upload PDF file with explicit multer error handling
+router.post('/upload', (req, res, next) => {
+  uploadMiddleware(req, res, function(err) {
+    if (err) {
+      const status = err.message && err.message.toLowerCase().includes('pdf') ? 400 : 500;
+      return res.status(status).json({
+        success: false,
+        message: err.message || 'File upload failed'
+      });
+    }
+    return uploadPDF(req, res, next);
+  });
+});
 
 // Search PDF content
 router.post('/search', searchPDF);
