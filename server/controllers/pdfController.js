@@ -4,7 +4,6 @@
 
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
 import { pdfService } from '../services/pdfService.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../config/config.js';
@@ -14,19 +13,8 @@ import OpenAI from 'openai';
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Use the writable temp directory on serverless platforms
-    const destDir = pdfService.uploadDir;
-    try {
-      if (!fs.existsSync(destDir)) {
-        fs.mkdirSync(destDir, { recursive: true });
-      }
-    } catch (e) {
-      // If directory creation fails, fall back to /tmp/uploads
-      try {
-        fs.mkdirSync('/tmp/uploads', { recursive: true });
-      } catch {}
-    }
-    cb(null, destDir);
+    // Use service-managed upload directory (works locally and on serverless like Vercel)
+    cb(null, pdfService.uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -160,7 +148,7 @@ export const searchPDF = async (req, res) => {
 export const listPDFs = async (req, res) => {
   try {
     const fs = await import('fs');
-    const uploadDir = 'uploads';
+    const uploadDir = pdfService.uploadDir;
     
     if (!fs.existsSync(uploadDir)) {
       return res.json({

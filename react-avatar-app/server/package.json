@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "react-avatar-app": "file:.."
+  }
+}
