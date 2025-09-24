@@ -16,13 +16,26 @@ class PDFService {
     } else {
       this.openai = null;
     }
-    this.uploadDir = 'uploads';
+    // Use writeable temp directory in serverless environments
+    this.uploadDir = process.env.UPLOAD_DIR || path.join('/tmp', 'uploads');
     this.ensureUploadDir();
   }
 
   ensureUploadDir() {
-    if (!fs.existsSync(this.uploadDir)) {
-      fs.mkdirSync(this.uploadDir, { recursive: true });
+    try {
+      if (!fs.existsSync(this.uploadDir)) {
+        fs.mkdirSync(this.uploadDir, { recursive: true });
+      }
+    } catch (err) {
+      // Fallback to /tmp if custom path is not writeable
+      try {
+        this.uploadDir = path.join('/tmp', 'uploads');
+        if (!fs.existsSync(this.uploadDir)) {
+          fs.mkdirSync(this.uploadDir, { recursive: true });
+        }
+      } catch (e) {
+        // As a last resort, keep in-memory only; writes will fail explicitly later
+      }
     }
   }
 
