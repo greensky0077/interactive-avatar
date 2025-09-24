@@ -60,27 +60,90 @@ class PDFService {
     try {
       const text = buffer.toString('utf8');
       
-      // Look for text between BT (Begin Text) and ET (End Text) markers
+      // Method 1: Look for text between BT (Begin Text) and ET (End Text) markers
       const textMatches = text.match(/BT\s+.*?ET/gs);
       if (textMatches) {
         let extractedText = '';
         for (const match of textMatches) {
-          // Extract text content from PDF text objects
-          const textContent = match.match(/\((.*?)\)/g);
+          // Extract text content from PDF text objects, but filter out numbers and symbols
+          const textContent = match.match(/\(([^)]+)\)/g);
           if (textContent) {
             for (const content of textContent) {
               const cleanText = content.replace(/[()]/g, '').replace(/\\n/g, '\n').replace(/\\r/g, '\r');
-              extractedText += cleanText + ' ';
+              // Filter out pure numbers, object references, and short meaningless strings
+              if (cleanText.length > 3 && 
+                  !/^\d+$/.test(cleanText) && 
+                  !/^[0-9\s]+$/.test(cleanText) &&
+                  !/^[0-9\s\.]+$/.test(cleanText) &&
+                  /[A-Za-z]/.test(cleanText)) {
+                extractedText += cleanText + ' ';
+              }
             }
           }
         }
-        return extractedText.trim();
+        if (extractedText.trim().length > 10) {
+          return extractedText.trim();
+        }
       }
 
-      // Fallback: look for readable text patterns
-      const readableText = text.match(/[A-Za-z0-9\s.,!?;:'"()-]{10,}/g);
+      // Method 2: Look for stream content that contains readable text
+      const streamMatches = text.match(/stream\s+.*?endstream/gs);
+      if (streamMatches) {
+        let extractedText = '';
+        for (const stream of streamMatches) {
+          // Look for readable text patterns in streams
+          const readableText = stream.match(/[A-Za-z][A-Za-z0-9\s.,!?;:'"()-]{5,}/g);
+          if (readableText) {
+            for (const text of readableText) {
+              // Filter out object references and numbers
+              if (text.length > 5 && 
+                  !/^\d+$/.test(text) && 
+                  !/^[0-9\s\.]+$/.test(text) &&
+                  /[A-Za-z]/.test(text)) {
+                extractedText += text + ' ';
+              }
+            }
+          }
+        }
+        if (extractedText.trim().length > 10) {
+          return extractedText.trim();
+        }
+      }
+
+      // Method 3: Look for text in parentheses that contains letters
+      const parenText = text.match(/\(([A-Za-z][^)]*[A-Za-z])\)/g);
+      if (parenText) {
+        let extractedText = '';
+        for (const match of parenText) {
+          const cleanText = match.replace(/[()]/g, '').replace(/\\n/g, '\n').replace(/\\r/g, '\r');
+          if (cleanText.length > 3 && /[A-Za-z]/.test(cleanText)) {
+            extractedText += cleanText + ' ';
+          }
+        }
+        if (extractedText.trim().length > 10) {
+          return extractedText.trim();
+        }
+      }
+
+      // Method 4: Look for readable text patterns (improved filtering)
+      const readableText = text.match(/[A-Za-z][A-Za-z0-9\s.,!?;:'"()-]{10,}/g);
       if (readableText) {
-        return readableText.join(' ').trim();
+        let filteredText = '';
+        for (const text of readableText) {
+          // Filter out object references, numbers, and meaningless content
+          if (text.length > 10 && 
+              !/^\d+$/.test(text) && 
+              !/^[0-9\s\.]+$/.test(text) &&
+              !/^[0-9\s]+$/.test(text) &&
+              /[A-Za-z]/.test(text) &&
+              !text.includes('00000 n') &&
+              !text.includes('00000 obj')) {
+            filteredText += text + ' ';
+          }
+        }
+        if (filteredText.trim().length > 10) {
+          return filteredText.trim();
+        }
       }
 
       return 'PDF text extraction not available - this is a basic fallback. The PDF content could not be extracted using simple text parsing.';
