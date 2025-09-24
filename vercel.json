@@ -6,7 +6,7 @@
   "routes": [
     { "src": "/(.*)", "dest": "/api/index.mjs" }
   ],
-  "buildCommand": "npm --prefix react-avatar-app ci && npm --prefix react-avatar-app run build && npm --prefix server ci"
+  "buildCommand": "npm ci && npm --prefix react-avatar-app ci && npm --prefix react-avatar-app run build && npm --prefix server ci"
 }
 
 
