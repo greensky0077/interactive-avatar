@@ -490,10 +490,16 @@ function App() {
       };
 
       peerConnection.oniceconnectionstatechange = () => {
-        addStatus(`ICE connection state: ${peerConnection.iceConnectionState}`);
+        const state = peerConnection.iceConnectionState;
+        const gatheringState = peerConnection.iceGatheringState;
+        const signalingState = peerConnection.signalingState;
+        
+        addStatus(`ICE connection state: ${state}`);
+        addStatus(`ICE gathering state: ${gatheringState}`);
+        addStatus(`Signaling state: ${signalingState}`);
         
         // Handle connection state changes
-        if (peerConnection.iceConnectionState === 'disconnected') {
+        if (state === 'disconnected') {
           addStatus('Connection lost. Attempting to restore...');
           // Try to restore connection by gathering new ICE candidates
           setTimeout(async () => {
@@ -511,17 +517,15 @@ function App() {
               }
             }
           }, 2000);
-        } else if (peerConnection.iceConnectionState === 'connected') {
+        } else if (state === 'connected' || state === 'completed') {
           addStatus('Connection established!');
-        } else if (peerConnection.iceConnectionState === 'failed') {
+        } else if (state === 'failed') {
           addStatus('Connection failed. Please try creating a new session.');
-        } else if (peerConnection.iceConnectionState === 'checking') {
+        } else if (state === 'checking') {
           addStatus('Checking connection...');
-        } else if (peerConnection.iceConnectionState === 'completed') {
-          addStatus('Connection completed!');
-        } else if (peerConnection.iceConnectionState === 'new') {
+        } else if (state === 'new') {
           addStatus('New connection state - ready to connect');
-        } else if (peerConnection.iceConnectionState === 'gathering') {
+        } else if (state === 'gathering') {
           addStatus('Gathering ICE candidates...');
         }
       };
@@ -760,6 +764,34 @@ function App() {
     addStatus("Connection state reset");
   };
 
+  // Check if WebRTC connection is stable
+  const isConnectionStable = () => {
+    if (!peerConnection) return false;
+    const state = peerConnection.iceConnectionState;
+    return state === 'connected' || state === 'completed';
+  };
+
+  // Wait for stable connection with timeout
+  const waitForStableConnection = async (timeoutMs = 10000) => {
+    return new Promise((resolve) => {
+      if (isConnectionStable()) {
+        resolve(true);
+        return;
+      }
+
+      const startTime = Date.now();
+      const checkInterval = setInterval(() => {
+        if (isConnectionStable()) {
+          clearInterval(checkInterval);
+          resolve(true);
+        } else if (Date.now() - startTime > timeoutMs) {
+          clearInterval(checkInterval);
+          resolve(false);
+        }
+      }, 500);
+    });
+  };
+
   const reconnectSession = async () => {
     if (!sessionInfo) {
       addStatus("No active session to reconnect to");
@@ -898,9 +930,24 @@ function App() {
     }
 
     // Check if we have an active connection before uploading
-    if (peerConnection && peerConnection.iceConnectionState !== 'connected') {
-      addStatus('No active connection. Please establish connection before uploading PDF.');
-      handleWarning("Connection Required", "Please establish a stable connection before uploading PDFs.");
+    if (!peerConnection) {
+      addStatus('No WebRTC connection. Please create a session first.');
+      handleWarning("Connection Required", "Please create a HeyGen session before uploading PDFs.");
+      return;
+    }
+
+    if (!isConnectionStable()) {
+      addStatus(`Connection not ready (${peerConnection.iceConnectionState}). Please wait for stable connection before uploading PDF.`);
+      handleWarning("Connection Not Ready", `WebRTC connection is in ${peerConnection.iceConnectionState} state. Please wait for it to be connected before uploading PDFs.`);
+      return;
+    }
+
+    // Wait for stable connection before proceeding
+    addStatus("Checking connection stability...");
+    const isStable = await waitForStableConnection(5000);
+    if (!isStable) {
+      addStatus("Connection is not stable. Please wait for connection to stabilize before uploading PDF.");
+      handleWarning("Connection Unstable", "WebRTC connection is not stable. Please wait for it to stabilize before uploading PDFs.");
       return;
     }
 
@@ -942,14 +989,27 @@ function App() {
       // Check connection status after upload
       if (peerConnection) {
         addStatus(`Connection status after upload: ${peerConnection.iceConnectionState}`);
-        if (peerConnection.iceConnectionState === 'disconnected') {
+        if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
           addStatus('Connection lost during PDF upload. Attempting to restore...');
           try {
             await peerConnection.restartIce();
             addStatus('ICE restart initiated after PDF upload.');
+            
+            // Wait a moment and check again
+            setTimeout(() => {
+              if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
+                addStatus('Connection could not be restored. Please create a new session.');
+                handleWarning("Connection Lost", "WebRTC connection was lost during PDF upload and could not be restored. Please create a new session.");
+              } else {
+                addStatus(`Connection restored: ${peerConnection.iceConnectionState}`);
+              }
+            }, 3000);
           } catch (error) {
             addStatus(`Failed to restart ICE after PDF upload: ${error.message}`);
+            handleWarning("Connection Error", "Failed to restore WebRTC connection after PDF upload.");
           }
+        } else {
+          addStatus(`Connection stable after upload: ${peerConnection.iceConnectionState}`);
         }
       }
     } catch (error) {
@@ -957,8 +1017,19 @@ function App() {
         addStatus('PDF upload timed out. Please try again.');
         handleWarning("Upload Timeout", "PDF upload timed out. Please try again.");
       } else {
-        addStatus(`Error uploading PDF: ${error}`);
-        handleApiError(error, "PDF Upload");
+        // Better error handling for PDF upload
+        let errorMessage = 'Unknown error occurred';
+        if (error.response && error.response.data) {
+          errorMessage = error.response.data.message || error.response.data.error || 'Server error';
+        } else if (error.message) {
+          errorMessage = error.message;
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+        
+        addStatus(`Error uploading PDF: ${errorMessage}`);
+        handleWarning("PDF Upload Error", errorMessage);
+        console.error('PDF Upload Error Details:', error);
       }
     }
   };
@@ -1020,7 +1091,13 @@ function App() {
     }
 
     // Check connection stability before asking
-    if (peerConnection && peerConnection.iceConnectionState !== 'connected') {
+    if (!peerConnection) {
+      addStatus('No WebRTC connection. Please create a session first.');
+      handleWarning("Connection Required", "Please create a HeyGen session before asking PDFs.");
+      return;
+    }
+
+    if (!isConnectionStable()) {
       addStatus('Connection unstable. Please wait for stable connection before asking.');
       handleWarning("Connection Required", "Please ensure stable connection before asking PDFs.");
       return;
