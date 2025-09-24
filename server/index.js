@@ -2,6 +2,11 @@ import app from './app.js';
 
 const port = process.env.PORT || 3001;
 
+// Add a simple health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // When running locally (node server/index.js), start the HTTP server.
 // In serverless (e.g., Vercel), this file can be imported and the app
 // will be used by the platform handler without calling listen().
