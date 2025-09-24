@@ -496,14 +496,21 @@ function App() {
         if (peerConnection.iceConnectionState === 'disconnected') {
           addStatus('Connection lost. Attempting to restore...');
           // Try to restore connection by gathering new ICE candidates
-          setTimeout(() => {
+          setTimeout(async () => {
             if (peerConnection.iceConnectionState === 'disconnected') {
-              addStatus('Connection could not be restored. Please create a new session.');
-              // Reset the connection state
-              setBotInitialized(false);
-              setShowVideo(false);
+              addStatus('Connection could not be restored. Attempting to reconnect...');
+              try {
+                // Try to restart ICE gathering
+                await peerConnection.restartIce();
+                addStatus('ICE restart initiated. Waiting for connection...');
+              } catch (error) {
+                addStatus(`ICE restart failed: ${error.message}. Please create a new session.`);
+                // Reset the connection state
+                setBotInitialized(false);
+                setShowVideo(false);
+              }
             }
-          }, 3000);
+          }, 2000);
         } else if (peerConnection.iceConnectionState === 'connected') {
           addStatus('Connection established!');
         } else if (peerConnection.iceConnectionState === 'failed') {
@@ -549,19 +556,41 @@ function App() {
       // Initialize AI bot
       await initializeBot();
 
-      // Add connection monitoring
-      const connectionMonitor = setInterval(() => {
+      // Add connection monitoring with retry logic
+      let connectionRetryCount = 0;
+      const maxRetries = 3;
+      
+      const connectionMonitor = setInterval(async () => {
         if (peerConnection.iceConnectionState === 'disconnected' || 
             peerConnection.iceConnectionState === 'failed') {
-          addStatus('Connection lost detected. Please create a new session.');
-          clearInterval(connectionMonitor);
+          
+          if (connectionRetryCount < maxRetries) {
+            connectionRetryCount++;
+            addStatus(`Connection lost detected. Retry attempt ${connectionRetryCount}/${maxRetries}...`);
+            
+            try {
+              // Try to restart ICE gathering
+              await peerConnection.restartIce();
+              addStatus('ICE restart initiated. Waiting for connection...');
+            } catch (error) {
+              addStatus(`ICE restart failed: ${error.message}`);
+            }
+          } else {
+            addStatus('Connection lost detected. Maximum retries reached. Please create a new session.');
+            clearInterval(connectionMonitor);
+            setBotInitialized(false);
+            setShowVideo(false);
+          }
+        } else if (peerConnection.iceConnectionState === 'connected') {
+          // Reset retry count on successful connection
+          connectionRetryCount = 0;
         }
-      }, 5000);
+      }, 10000); // Check every 10 seconds
       
-      // Clear monitor after 2 minutes
+      // Clear monitor after 5 minutes
       setTimeout(() => {
         clearInterval(connectionMonitor);
-      }, 120000);
+      }, 300000);
 
       // Set jitter buffer
       const receivers = peerConnection.getReceivers();
@@ -729,6 +758,26 @@ function App() {
     setBotInitialized(false);
     setShowVideo(false);
     addStatus("Connection state reset");
+  };
+
+  const reconnectSession = async () => {
+    if (!sessionInfo) {
+      addStatus("No active session to reconnect to");
+      return;
+    }
+    
+    addStatus("Attempting to reconnect...");
+    try {
+      // Try to restart ICE gathering
+      if (peerConnection) {
+        await peerConnection.restartIce();
+        addStatus("ICE restart initiated. Waiting for connection...");
+      } else {
+        addStatus("No active connection to restart. Please create a new session.");
+      }
+    } catch (error) {
+      addStatus(`Reconnection failed: ${error.message}`);
+    }
   };
 
   // Close the connection
@@ -1212,12 +1261,19 @@ function App() {
                 >
                   Close
                 </Button>
-                <Button
-                  onClick={resetPeerConnection}
-                  variant="outline"
-                >
-                  Reset
-                </Button>
+        <Button
+          onClick={resetPeerConnection}
+          variant="outline"
+        >
+          Reset
+        </Button>
+        <Button
+          onClick={reconnectSession}
+          variant="outline"
+          disabled={!sessionInfo}
+        >
+          Reconnect
+        </Button>
               </div>
             </div>
 
