@@ -6,7 +6,7 @@ dotenv.config();
 export const config = {
   heygen: {
     apiKey: process.env.HEYGEN_APIKEY,
-    serverUrl: process.env.HEYGEN_SERVER_URL,
+    serverUrl: process.env.HEYGEN_SERVER_URL || 'https://api.heygen.com',
     defaultQuality: 'low',
     defaultAvatarName: '1727404227',
     defaultVoiceId: '73c0b6a2e29d4d38aca41454bf58c955',

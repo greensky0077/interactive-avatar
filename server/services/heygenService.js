@@ -16,25 +16,14 @@ class HeygenService {
     
     // Check if API key is configured
     if (!this.apiKey || this.apiKey === 'your_heygen_api_key_here') {
-      // Return mock data for testing when API key is not configured
-      logger.warn('HeygenService', 'API key not configured, returning mock session data');
-      return {
-        session_id: `mock_session_${Date.now()}`,
-        sdp: {
-          type: 'offer',
-          sdp: 'mock_sdp_offer'
-        },
-        ice_servers2: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ]
-      };
+      throw new Error('HEYGEN_APIKEY is missing. Please set it in your server environment.');
     }
 
     try {
       const requestBody = {
         quality: config.heygen.defaultQuality,
         avatar_name,
+        disable_idle_timeout: true,
       };
       
       // Only add voice if voice_id is provided and not empty
