@@ -52,7 +52,7 @@ class PDFService {
   }
 
   /**
-   * @description Basic PDF text extraction using regex patterns
+   * @description Advanced PDF text extraction with proper structure parsing
    * @param {Buffer} buffer - PDF file buffer
    * @returns {Promise<string>} Extracted text
    */
@@ -60,95 +60,22 @@ class PDFService {
     try {
       const text = buffer.toString('utf8');
       
-      // Method 1: Look for text between BT (Begin Text) and ET (End Text) markers
-      const textMatches = text.match(/BT\s+.*?ET/gs);
-      if (textMatches) {
-        let extractedText = '';
-        for (const match of textMatches) {
-          // Extract text content from PDF text objects
-          const textContent = match.match(/\(([^)]+)\)/g);
-          if (textContent) {
-            for (const content of textContent) {
-              const cleanText = content.replace(/[()]/g, '').replace(/\\n/g, '\n').replace(/\\r/g, '\r');
-              // Very strict filtering for readable text only
-              if (cleanText.length > 5 && 
-                  cleanText.length < 200 &&
-                  /[A-Za-z]/.test(cleanText) &&
-                  !/^[0-9\s\.]+$/.test(cleanText) &&
-                  !/^[A-Za-z0-9\s.,!?;:'"()-]{1,5}$/.test(cleanText) &&
-                  // Must contain common English words or readable patterns
-                  (/\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which)\b/i.test(cleanText) ||
-                   /\b[a-z]{3,}\b/i.test(cleanText)) &&
-                  // Avoid binary/encoded content
-                  !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(cleanText)) {
-                extractedText += cleanText + ' ';
-              }
-            }
-          }
-        }
-        if (extractedText.trim().length > 30) {
-          return extractedText.trim();
-        }
+      // Method 1: Extract text from PDF text objects (BT...ET blocks)
+      const textObjects = this.extractTextFromObjects(text);
+      if (textObjects.trim().length > 50) {
+        return textObjects.trim();
       }
 
-      // Method 2: Look for text in parentheses that contains meaningful content
-      const parenText = text.match(/\(([A-Za-z][^)]*[A-Za-z])\)/g);
-      if (parenText) {
-        let extractedText = '';
-        for (const match of parenText) {
-          const cleanText = match.replace(/[()]/g, '').replace(/\\n/g, '\n').replace(/\\r/g, '\r');
-          // Very strict filtering for meaningful text
-          if (cleanText.length > 8 && 
-              cleanText.length < 150 &&
-              /[A-Za-z]/.test(cleanText) &&
-              !/^[0-9\s\.]+$/.test(cleanText) &&
-              // Must contain common English words
-              (/\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which)\b/i.test(cleanText) ||
-               /\b[a-z]{3,}\b/i.test(cleanText)) &&
-              // Avoid binary/encoded content
-              !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(cleanText)) {
-            extractedText += cleanText + ' ';
-          }
-        }
-        if (extractedText.trim().length > 30) {
-          return extractedText.trim();
-        }
+      // Method 2: Extract text from PDF streams (decompressed content)
+      const streamText = this.extractTextFromStreams(text);
+      if (streamText.trim().length > 50) {
+        return streamText.trim();
       }
 
-      // Method 3: Look for readable text patterns with very strict filtering
-      const readableText = text.match(/[A-Za-z][A-Za-z0-9\s.,!?;:'"()-]{8,}/g);
-      if (readableText) {
-        let filteredText = '';
-        for (const text of readableText) {
-          // Very strict filtering to avoid any binary/encoded content
-          if (text.length > 15 && 
-              text.length < 100 &&
-              !/^\d+$/.test(text) && 
-              !/^[0-9\s\.]+$/.test(text) &&
-              !/^[0-9\s]+$/.test(text) &&
-              /[A-Za-z]/.test(text) &&
-              !text.includes('00000 n') &&
-              !text.includes('00000 obj') &&
-              !text.includes('stream') &&
-              !text.includes('endstream') &&
-              !text.includes('/Type') &&
-              !text.includes('/StructElem') &&
-              !text.includes('/S') &&
-              !text.includes('/P') &&
-              !text.includes('/Pg') &&
-              !text.includes('/K') &&
-              !text.includes('endobj') &&
-              // Must contain common English words
-              (/\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which)\b/i.test(text) ||
-               /\b[a-z]{3,}\b/i.test(text)) &&
-              // Avoid binary/encoded content
-              !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(text)) {
-            filteredText += text + ' ';
-          }
-        }
-        if (filteredText.trim().length > 30) {
-          return filteredText.trim();
-        }
+      // Method 3: Extract text from PDF content streams
+      const contentText = this.extractTextFromContentStreams(text);
+      if (contentText.trim().length > 50) {
+        return contentText.trim();
       }
 
       return 'PDF text extraction not available - this is a basic fallback. The PDF content could not be extracted using simple text parsing.';
@@ -156,6 +83,142 @@ class PDFService {
       logger.error('PDFService', 'Basic PDF extraction failed', { error: error.message });
       return 'PDF text extraction failed - unable to parse PDF content.';
     }
+  }
+
+  /**
+   * @description Extract text from PDF text objects (BT...ET blocks)
+   * @param {string} text - PDF text content
+   * @returns {string} Extracted text
+   */
+  extractTextFromObjects(text) {
+    let extractedText = '';
+    
+    // Find all text objects (BT...ET blocks)
+    const textMatches = text.match(/BT\s+.*?ET/gs);
+    if (!textMatches) return '';
+
+    for (const match of textMatches) {
+      // Extract text content from parentheses
+      const textContent = match.match(/\(([^)]+)\)/g);
+      if (textContent) {
+        for (const content of textContent) {
+          const cleanText = this.cleanTextContent(content);
+          if (this.isValidText(cleanText)) {
+            extractedText += cleanText + ' ';
+          }
+        }
+      }
+    }
+
+    return extractedText;
+  }
+
+  /**
+   * @description Extract text from PDF streams
+   * @param {string} text - PDF text content
+   * @returns {string} Extracted text
+   */
+  extractTextFromStreams(text) {
+    let extractedText = '';
+    
+    // Find all stream blocks
+    const streamMatches = text.match(/stream\s+.*?endstream/gs);
+    if (!streamMatches) return '';
+
+    for (const stream of streamMatches) {
+      // Look for text content in streams
+      const textContent = stream.match(/\(([^)]+)\)/g);
+      if (textContent) {
+        for (const content of textContent) {
+          const cleanText = this.cleanTextContent(content);
+          if (this.isValidText(cleanText)) {
+            extractedText += cleanText + ' ';
+          }
+        }
+      }
+    }
+
+    return extractedText;
+  }
+
+  /**
+   * @description Extract text from PDF content streams
+   * @param {string} text - PDF text content
+   * @returns {string} Extracted text
+   */
+  extractTextFromContentStreams(text) {
+    let extractedText = '';
+    
+    // Look for content streams that contain text
+    const contentMatches = text.match(/\/Contents\s+.*?endstream/gs);
+    if (!contentMatches) return '';
+
+    for (const content of contentMatches) {
+      // Extract text from content streams
+      const textContent = content.match(/\(([^)]+)\)/g);
+      if (textContent) {
+        for (const text of textContent) {
+          const cleanText = this.cleanTextContent(text);
+          if (this.isValidText(cleanText)) {
+            extractedText += cleanText + ' ';
+          }
+        }
+      }
+    }
+
+    return extractedText;
+  }
+
+  /**
+   * @description Clean text content from PDF
+   * @param {string} content - Raw text content
+   * @returns {string} Cleaned text
+   */
+  cleanTextContent(content) {
+    return content
+      .replace(/[()]/g, '')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\\(/g, '(')
+      .replace(/\\\)/g, ')')
+      .replace(/\\\\/g, '\\')
+      .trim();
+  }
+
+  /**
+   * @description Validate if text is meaningful content
+   * @param {string} text - Text to validate
+   * @returns {boolean} True if valid text
+   */
+  isValidText(text) {
+    // Basic length check
+    if (text.length < 3 || text.length > 500) return false;
+    
+    // Must contain letters
+    if (!/[A-Za-z]/.test(text)) return false;
+    
+    // Must not be pure numbers
+    if (/^[0-9\s\.]+$/.test(text)) return false;
+    
+    // Must not be PDF structure data
+    if (text.includes('/Type') || text.includes('/StructElem') || text.includes('/S') || 
+        text.includes('/P') || text.includes('/Pg') || text.includes('/K') || 
+        text.includes('endobj') || text.includes('stream') || text.includes('endstream')) {
+      return false;
+    }
+    
+    // Must not be object references
+    if (text.includes('00000 n') || text.includes('00000 obj')) return false;
+    
+    // Must not contain binary characters
+    if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/.test(text)) return false;
+    
+    // Must contain common English words or readable patterns
+    const commonWords = /\b(the|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were|be|been|have|has|had|do|does|did|will|would|could|should|may|might|can|must|shall|this|that|these|those|a|an|as|if|when|where|why|how|what|who|which|from|into|during|including|until|against|among|throughout|despite|towards|upon|concerning|to|of|in|for|on|with|at|by|from|up|about|into|through|during|before|after|above|below|up|down|in|out|off|over|under|again|further|then|once)\b/i;
+    const readablePattern = /\b[a-z]{3,}\b/i;
+    
+    return commonWords.test(text) || readablePattern.test(text);
   }
 
   /**
