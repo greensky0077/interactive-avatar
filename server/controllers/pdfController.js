@@ -55,8 +55,9 @@ export const uploadPDF = async (req, res) => {
       size: req.file.size 
     });
 
-    // Extract text from PDF
-    const extractedText = await pdfService.extractTextFromPDF(req.file.path);
+    // Extract text from PDF (multer v2 may not include path)
+    const filePath = req.file.path || path.join(pdfService.uploadDir, req.file.filename);
+    const extractedText = await pdfService.extractTextFromPDF(filePath);
     
     // Process content for RAG
     const processedChunks = await pdfService.processPDFContent(extractedText);

@@ -5,6 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import OpenAI from 'openai';
+import pdfParse from 'pdf-parse';
 import { config } from '../config/config.js';
 import { logger } from '../utils/logger.js';
 
@@ -51,21 +52,6 @@ class PDFService {
       // Check if file exists
       if (!fs.existsSync(filePath)) {
         throw new Error(`PDF file not found: ${filePath}`);
-      }
-      
-      // Use a more robust import strategy for pdf-parse
-      let pdfParse;
-      try {
-        // Try dynamic import first
-        const pdfModule = await import('pdf-parse');
-        pdfParse = pdfModule.default || pdfModule;
-      } catch (importError) {
-        logger.warn('PDFService', 'Dynamic import failed, trying require', { error: importError.message });
-        // Fallback to require for CommonJS compatibility
-        const { createRequire } = await import('module');
-        const require = createRequire(import.meta.url);
-        const pdfModule = require('pdf-parse');
-        pdfParse = pdfModule.default || pdfModule;
       }
       
       const dataBuffer = fs.readFileSync(filePath);
