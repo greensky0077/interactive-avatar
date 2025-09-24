@@ -1,25 +1,12 @@
 {
   "version": 2,
   "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "react-avatar-app/dist",
-        "buildCommand": "npm --prefix react-avatar-app ci && npm --prefix react-avatar-app run build"
-      }
-    },
-    { "src": "api/index.mjs", "use": "@vercel/node" }
+    { "src": "server/server.js", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/(persona|openai|pdf)(/.*)?", "dest": "/api/index.mjs" },
-    { "handle": "filesystem" },
-    { "src": "/.*", "dest": "/index.html" }
+    { "src": "/(.*)", "dest": "server/server.js" }
   ],
-  "env": {
-    "NODE_ENV": "production"
-  },
-  "outputDirectory": "react-avatar-app/dist"
+  "buildCommand": "npm --prefix react-avatar-app ci && npm --prefix react-avatar-app run build && npm --prefix server ci"
 }
 
 
