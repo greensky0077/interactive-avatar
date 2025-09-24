@@ -20,7 +20,8 @@ app.use('/pdf', pdfRouter);
 // Serve React frontend static files when running on platforms like Vercel
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const frontendDist = path.resolve(__dirname, '../react-avatar-app/dist');
+// Resolve dist relative to function working directory so it works on Vercel
+const frontendDist = path.resolve(process.cwd(), 'react-avatar-app', 'dist');
 
 app.use(express.static(frontendDist));
 
