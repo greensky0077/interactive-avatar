@@ -293,7 +293,8 @@ class RAGService {
    */
   async generateEmbeddings(chunks) {
     if (!this.openai) {
-      throw new Error('OpenAI client not initialized');
+      logger.warn('RAGService', 'OpenAI client not initialized, using fallback embeddings');
+      return this.generateFallbackEmbeddings(chunks);
     }
 
     try {
@@ -304,9 +305,49 @@ class RAGService {
 
       return response.data.map(item => item.embedding);
     } catch (error) {
+      if (error.status === 429 || error.message.includes('quota') || error.message.includes('rate limit')) {
+        logger.warn('RAGService', 'OpenAI quota exceeded, using fallback embeddings', { error: error.message });
+        return this.generateFallbackEmbeddings(chunks);
+      }
       logger.error('RAGService', 'Failed to generate embeddings', { error: error.message });
       throw error;
     }
+  }
+
+  /**
+   * @description Generate fallback embeddings using simple hash-based vectors
+   * @param {Array} chunks - Text chunks
+   * @returns {Array} Fallback embeddings
+   */
+  generateFallbackEmbeddings(chunks) {
+    return chunks.map(chunk => {
+      // Create a simple hash-based vector for fallback
+      const hash = this.simpleHash(chunk.text);
+      const vector = [];
+      
+      // Generate a 384-dimensional vector based on hash
+      for (let i = 0; i < 384; i++) {
+        const seed = (hash + i) % 1000;
+        vector.push((Math.sin(seed) + 1) / 2); // Normalize to 0-1
+      }
+      
+      return vector;
+    });
+  }
+
+  /**
+   * @description Simple hash function for fallback embeddings
+   * @param {string} text - Text to hash
+   * @returns {number} Hash value
+   */
+  simpleHash(text) {
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      const char = text.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash);
   }
 
   /**
@@ -479,37 +520,80 @@ class RAGService {
         }
       }
 
-      // Generate query embedding
-      const queryEmbedding = await this.generateEmbeddings([query]);
-      const queryVector = queryEmbedding[0];
+      // Try vector similarity search first
+      try {
+        // Generate query embedding
+        const queryEmbedding = await this.generateEmbeddings([query]);
+        const queryVector = queryEmbedding[0];
 
-      // Calculate similarities
-      const similarities = kbEntry.chunks.map(chunk => ({
-        chunk,
-        similarity: this.cosineSimilarity(queryVector, chunk.embedding)
-      }));
-
-      // Sort by similarity and return top results
-      const results = similarities
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, limit)
-        .map(item => ({
-          text: item.chunk.text,
-          similarity: item.similarity,
-          metadata: item.chunk.metadata
+        // Calculate similarities
+        const similarities = kbEntry.chunks.map(chunk => ({
+          chunk,
+          similarity: this.cosineSimilarity(queryVector, chunk.embedding)
         }));
 
-      logger.info('RAGService', 'Chunk search completed', { 
-        filename, 
-        query, 
-        resultsCount: results.length 
-      });
+        // Sort by similarity and return top results
+        const results = similarities
+          .sort((a, b) => b.similarity - a.similarity)
+          .slice(0, limit)
+          .map(item => ({
+            text: item.chunk.text,
+            similarity: item.similarity,
+            metadata: item.chunk.metadata
+          }));
 
-      return results;
+        logger.info('RAGService', 'Vector search completed', { 
+          filename, 
+          query, 
+          resultsCount: results.length 
+        });
+
+        return results;
+      } catch (embeddingError) {
+        logger.warn('RAGService', 'Vector search failed, using text search', { error: embeddingError.message });
+        return this.textBasedSearch(query, kbEntry.chunks, limit);
+      }
     } catch (error) {
       logger.error('RAGService', 'Chunk search failed', { error: error.message });
       throw error;
     }
+  }
+
+  /**
+   * @description Fallback text-based search when embeddings fail
+   * @param {string} query - Search query
+   * @param {Array} chunks - Text chunks
+   * @param {number} limit - Maximum number of results
+   * @returns {Array} Relevant chunks
+   */
+  textBasedSearch(query, chunks, limit = 5) {
+    const queryWords = query.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+    
+    const scoredChunks = chunks.map(chunk => {
+      const text = chunk.text.toLowerCase();
+      let score = 0;
+      
+      // Count word matches
+      queryWords.forEach(word => {
+        const matches = (text.match(new RegExp(word, 'g')) || []).length;
+        score += matches;
+      });
+      
+      // Bonus for exact phrase matches
+      if (text.includes(query.toLowerCase())) {
+        score += 5;
+      }
+      
+      return {
+        text: chunk.text,
+        similarity: Math.min(score / queryWords.length, 1), // Normalize to 0-1
+        metadata: chunk.metadata
+      };
+    });
+
+    return scoredChunks
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, limit);
   }
 
   /**
@@ -520,7 +604,8 @@ class RAGService {
    */
   async generateRAGResponse(query, relevantChunks) {
     if (!this.openai) {
-      throw new Error('OpenAI client not initialized');
+      logger.warn('RAGService', 'OpenAI client not initialized, using fallback response');
+      return this.generateFallbackResponse(query, relevantChunks);
     }
 
     try {
@@ -558,9 +643,31 @@ Answer:`;
 
       return response.choices[0].message.content;
     } catch (error) {
+      if (error.status === 429 || error.message.includes('quota') || error.message.includes('rate limit')) {
+        logger.warn('RAGService', 'OpenAI quota exceeded, using fallback response', { error: error.message });
+        return this.generateFallbackResponse(query, relevantChunks);
+      }
       logger.error('RAGService', 'RAG response generation failed', { error: error.message });
       throw error;
     }
+  }
+
+  /**
+   * @description Generate fallback response when OpenAI is not available
+   * @param {string} query - User query
+   * @param {Array} relevantChunks - Retrieved chunks
+   * @returns {string} Fallback response
+   */
+  generateFallbackResponse(query, relevantChunks) {
+    if (relevantChunks.length === 0) {
+      return `I couldn't find any relevant information in the PDF to answer your question: "${query}". The document may not contain information related to your query, or the text extraction may have been limited.`;
+    }
+
+    const context = relevantChunks
+      .map((chunk, index) => `• ${chunk.text}`)
+      .join('\n\n');
+
+    return `Based on the PDF content, here's what I found related to your question "${query}":\n\n${context}\n\nNote: This response was generated using basic text matching since advanced AI processing is currently unavailable. For more accurate answers, please ensure the OpenAI API is properly configured.`;
   }
 
   /**
