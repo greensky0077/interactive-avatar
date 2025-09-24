@@ -261,29 +261,52 @@ class RAGService {
    * @returns {Array} Text chunks
    */
   chunkText(text, chunkSize = 1000, overlap = 200) {
-    const chunks = [];
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-    
-    let currentChunk = '';
-    for (const sentence of sentences) {
-      const trimmedSentence = sentence.trim();
-      if (!trimmedSentence) continue;
-      
-      if (currentChunk.length + trimmedSentence.length > chunkSize) {
-        if (currentChunk.trim()) {
-          chunks.push(currentChunk.trim());
-        }
-        currentChunk = trimmedSentence;
-      } else {
-        currentChunk += (currentChunk ? '. ' : '') + trimmedSentence;
+    try {
+      if (!text || typeof text !== 'string') {
+        logger.warn('RAGService', 'Invalid text for chunking', { textType: typeof text });
+        return [];
       }
+
+      const chunks = [];
+      const sentences = text.split(/[.!?]+/).filter(s => s && s.trim().length > 0);
+      
+      if (!sentences || sentences.length === 0) {
+        logger.warn('RAGService', 'No sentences found for chunking');
+        return [];
+      }
+      
+      let currentChunk = '';
+      for (const sentence of sentences) {
+        if (!sentence) continue;
+        
+        const trimmedSentence = sentence.trim();
+        if (!trimmedSentence) continue;
+        
+        if (currentChunk.length + trimmedSentence.length > chunkSize) {
+          if (currentChunk.trim()) {
+            chunks.push(currentChunk.trim());
+          }
+          currentChunk = trimmedSentence;
+        } else {
+          currentChunk += (currentChunk ? '. ' : '') + trimmedSentence;
+        }
+      }
+      
+      if (currentChunk.trim()) {
+        chunks.push(currentChunk.trim());
+      }
+      
+      logger.info('RAGService', 'Text chunking completed', { 
+        originalLength: text.length,
+        chunksCount: chunks.length,
+        chunkSize 
+      });
+      
+      return chunks;
+    } catch (error) {
+      logger.error('RAGService', 'Text chunking failed', { error: error.message });
+      return [];
     }
-    
-    if (currentChunk.trim()) {
-      chunks.push(currentChunk.trim());
-    }
-    
-    return chunks;
   }
 
   /**
@@ -292,25 +315,52 @@ class RAGService {
    * @returns {Promise<Array>} Embeddings
    */
   async generateEmbeddings(chunks) {
-    if (!this.openai) {
-      logger.warn('RAGService', 'OpenAI client not initialized, using fallback embeddings');
-      return this.generateFallbackEmbeddings(chunks);
-    }
-
     try {
-      const response = await this.openai.embeddings.create({
-        model: 'text-embedding-3-small',
-        input: chunks,
-      });
-
-      return response.data.map(item => item.embedding);
-    } catch (error) {
-      if (error.status === 429 || error.message.includes('quota') || error.message.includes('rate limit')) {
-        logger.warn('RAGService', 'OpenAI quota exceeded, using fallback embeddings', { error: error.message });
-        return this.generateFallbackEmbeddings(chunks);
+      if (!chunks || !Array.isArray(chunks)) {
+        logger.warn('RAGService', 'Invalid chunks for embedding generation', { chunksType: typeof chunks });
+        return [];
       }
-      logger.error('RAGService', 'Failed to generate embeddings', { error: error.message });
-      throw error;
+
+      if (chunks.length === 0) {
+        logger.warn('RAGService', 'No chunks to generate embeddings for');
+        return [];
+      }
+
+      // Filter out invalid chunks
+      const validChunks = chunks.filter(chunk => chunk && typeof chunk === 'string' && chunk.trim().length > 0);
+      
+      if (validChunks.length === 0) {
+        logger.warn('RAGService', 'No valid chunks for embedding generation');
+        return [];
+      }
+
+      if (!this.openai) {
+        logger.warn('RAGService', 'OpenAI client not initialized, using fallback embeddings');
+        return this.generateFallbackEmbeddings(validChunks);
+      }
+
+      try {
+        const response = await this.openai.embeddings.create({
+          model: 'text-embedding-3-small',
+          input: validChunks,
+        });
+
+        if (!response || !response.data || !Array.isArray(response.data)) {
+          throw new Error('Invalid response from OpenAI embeddings API');
+        }
+
+        return response.data.map(item => item.embedding);
+      } catch (error) {
+        if (error.status === 429 || error.message.includes('quota') || error.message.includes('rate limit')) {
+          logger.warn('RAGService', 'OpenAI quota exceeded, using fallback embeddings', { error: error.message });
+          return this.generateFallbackEmbeddings(validChunks);
+        }
+        logger.error('RAGService', 'Failed to generate embeddings', { error: error.message });
+        throw error;
+      }
+    } catch (error) {
+      logger.error('RAGService', 'Embedding generation failed', { error: error.message });
+      return [];
     }
   }
 
@@ -320,19 +370,54 @@ class RAGService {
    * @returns {Array} Fallback embeddings
    */
   generateFallbackEmbeddings(chunks) {
-    return chunks.map(chunk => {
-      // Create a simple hash-based vector for fallback
-      const hash = this.simpleHash(chunk.text);
-      const vector = [];
-      
-      // Generate a 384-dimensional vector based on hash
-      for (let i = 0; i < 384; i++) {
-        const seed = (hash + i) % 1000;
-        vector.push((Math.sin(seed) + 1) / 2); // Normalize to 0-1
+    try {
+      if (!chunks || !Array.isArray(chunks)) {
+        logger.warn('RAGService', 'Invalid chunks for fallback embeddings', { chunksType: typeof chunks });
+        return [];
       }
-      
-      return vector;
-    });
+
+      return chunks.map(chunk => {
+        try {
+          // Handle both string chunks and object chunks
+          const text = typeof chunk === 'string' ? chunk : (chunk.text || '');
+          
+          if (!text || typeof text !== 'string') {
+            logger.warn('RAGService', 'Invalid chunk text for fallback embedding', { chunkType: typeof chunk });
+            return this.createRandomVector();
+          }
+
+          // Create a simple hash-based vector for fallback
+          const hash = this.simpleHash(text);
+          const vector = [];
+          
+          // Generate a 384-dimensional vector based on hash
+          for (let i = 0; i < 384; i++) {
+            const seed = (hash + i) % 1000;
+            vector.push((Math.sin(seed) + 1) / 2); // Normalize to 0-1
+          }
+          
+          return vector;
+        } catch (error) {
+          logger.warn('RAGService', 'Failed to generate fallback embedding for chunk', { error: error.message });
+          return this.createRandomVector();
+        }
+      });
+    } catch (error) {
+      logger.error('RAGService', 'Fallback embedding generation failed', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * @description Create a random vector for fallback
+   * @returns {Array} Random vector
+   */
+  createRandomVector() {
+    const vector = [];
+    for (let i = 0; i < 384; i++) {
+      vector.push(Math.random());
+    }
+    return vector;
   }
 
   /**
@@ -368,27 +453,46 @@ class RAGService {
 
       // Chunk text
       const chunks = this.chunkText(extractedText);
-      if (chunks.length === 0) {
+      if (!chunks || chunks.length === 0) {
         throw new Error('No valid chunks could be created from PDF');
       }
 
+      logger.info('RAGService', 'Text chunking completed', { 
+        chunksCount: chunks.length,
+        firstChunkPreview: chunks[0] ? chunks[0].substring(0, 100) + '...' : 'N/A'
+      });
+
       // Generate embeddings
       const embeddings = await this.generateEmbeddings(chunks);
+      
+      if (!embeddings || embeddings.length === 0) {
+        throw new Error('Failed to generate embeddings for PDF chunks');
+      }
+
+      if (embeddings.length !== chunks.length) {
+        logger.warn('RAGService', 'Embedding count mismatch', { 
+          chunksCount: chunks.length, 
+          embeddingsCount: embeddings.length 
+        });
+      }
 
       // Create knowledge base entry
       const kbEntry = {
         filename,
         originalText: extractedText,
-        chunks: chunks.map((chunk, index) => ({
-          id: `${filename}_chunk_${index}`,
-          text: chunk,
-          embedding: embeddings[index],
-          metadata: {
-            chunkIndex: index,
-            totalChunks: chunks.length,
-            processedAt: new Date().toISOString()
-          }
-        })),
+        chunks: chunks.map((chunk, index) => {
+          const embedding = embeddings[index] || this.createRandomVector();
+          return {
+            id: `${filename}_chunk_${index}`,
+            text: chunk,
+            embedding: embedding,
+            metadata: {
+              chunkIndex: index,
+              totalChunks: chunks.length,
+              processedAt: new Date().toISOString()
+            }
+          };
+        }),
         metadata: {
           totalChunks: chunks.length,
           processedAt: new Date().toISOString(),
