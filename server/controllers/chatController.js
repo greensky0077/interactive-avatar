@@ -3,9 +3,13 @@ import { logger } from '../utils/logger.js';
 import { persona } from '../utils/persona.js';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: config.openai.apiKey,
-});
+// Lazily initialize OpenAI client only when a valid API key is present
+const getOpenAIClient = () => {
+  if (!config.openai.apiKey || config.openai.apiKey === 'your_openai_api_key_here') {
+    return null;
+  }
+  return new OpenAI({ apiKey: config.openai.apiKey });
+};
 
 const getPersonaPrompt = () => {
   return `From today your identity is ${persona.name}.
@@ -38,6 +42,11 @@ const generateOpenAIResponse = async (prompt) => {
   const personaPrompt = getPersonaPrompt();
   
   try {
+    const openai = getOpenAIClient();
+    if (!openai) {
+      // Fallback mock response in environments without an API key
+      return `As ${persona.name}, I can't access OpenAI right now (no API key configured). Here's a safe mock reply to your prompt.`;
+    }
     const completion = await openai.chat.completions.create({
       model: config.openai.model,
       messages: [
@@ -64,7 +73,8 @@ export const InitializeBot = async (req, res) => {
   logger.info('Server', 'Initializing AI service');
   try {
     // Check if API key is configured
-    if (!config.openai.apiKey || config.openai.apiKey === 'your_openai_api_key_here') {
+    const openai = getOpenAIClient();
+    if (!openai) {
       logger.warn('OpenAI', 'API key not configured, returning mock response');
       return res.json({
         success: true,
@@ -112,7 +122,8 @@ export const AIChatResponse = async (req, res) => {
     const userPrompt = req.body.prompt;
     
     // Check if API key is configured
-    if (!config.openai.apiKey || config.openai.apiKey === 'your_openai_api_key_here') {
+    const openai = getOpenAIClient();
+    if (!openai) {
       logger.warn('OpenAI', 'API key not configured, returning mock response');
       return res.json({
         success: true,
