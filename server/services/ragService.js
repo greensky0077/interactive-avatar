@@ -10,8 +10,6 @@ import { logger } from '../utils/logger.js';
 
 // Try to import PDF processing libraries
 let pdfParse = null;
-let pdfplumber = null;
-let PyPDF2 = null;
 
 try {
   const pdfModule = await import('pdf-parse');
@@ -19,22 +17,6 @@ try {
   logger.info('RAGService', 'pdf-parse loaded successfully');
 } catch (error) {
   logger.warn('RAGService', 'pdf-parse not available', { error: error.message });
-}
-
-try {
-  const pdfplumberModule = await import('pdfplumber');
-  pdfplumber = pdfplumberModule.default || pdfplumberModule;
-  logger.info('RAGService', 'pdfplumber loaded successfully');
-} catch (error) {
-  logger.warn('RAGService', 'pdfplumber not available', { error: error.message });
-}
-
-try {
-  const PyPDF2Module = await import('pypdf2');
-  PyPDF2 = PyPDF2Module.default || PyPDF2Module;
-  logger.info('RAGService', 'PyPDF2 loaded successfully');
-} catch (error) {
-  logger.warn('RAGService', 'PyPDF2 not available', { error: error.message });
 }
 
 class RAGService {
@@ -78,29 +60,7 @@ class RAGService {
     try {
       let extractedText = '';
 
-      // Method 1: Try pdfplumber (most accurate)
-      if (pdfplumber) {
-        try {
-          const pdf = await pdfplumber.load(pdfBuffer);
-          const pages = pdf.pages;
-          
-          for (const page of pages) {
-            const text = page.getText();
-            if (text) {
-              extractedText += text + '\n';
-            }
-          }
-          
-          if (extractedText.trim().length > 50) {
-            logger.info('RAGService', 'Text extracted using pdfplumber');
-            return extractedText.trim();
-          }
-        } catch (error) {
-          logger.warn('RAGService', 'pdfplumber extraction failed', { error: error.message });
-        }
-      }
-
-      // Method 2: Try pdf-parse
+      // Method 1: Try pdf-parse
       if (pdfParse) {
         try {
           const data = await pdfParse(pdfBuffer);
@@ -113,29 +73,7 @@ class RAGService {
         }
       }
 
-      // Method 3: Try PyPDF2
-      if (PyPDF2) {
-        try {
-          const pdfReader = new PyPDF2.PdfReader(pdfBuffer);
-          const pages = pdfReader.pages;
-          
-          for (const page of pages) {
-            const text = page.extractText();
-            if (text) {
-              extractedText += text + '\n';
-            }
-          }
-          
-          if (extractedText.trim().length > 50) {
-            logger.info('RAGService', 'Text extracted using PyPDF2');
-            return extractedText.trim();
-          }
-        } catch (error) {
-          logger.warn('RAGService', 'PyPDF2 extraction failed', { error: error.message });
-        }
-      }
-
-      // Method 4: Fallback to basic extraction
+      // Method 2: Fallback to basic extraction
       const basicText = await this.basicTextExtraction(pdfBuffer);
       if (basicText.trim().length > 50) {
         logger.info('RAGService', 'Text extracted using basic method');
