@@ -25,7 +25,8 @@ class PDFService {
     } else {
       this.openai = null;
     }
-    // Use writeable temp directory in serverless environments
+    // Use in-memory storage for serverless environments
+    this.processedData = new Map();
     this.uploadDir = process.env.UPLOAD_DIR || path.join('/tmp', 'uploads');
     this.ensureUploadDir();
   }
@@ -253,26 +254,24 @@ class PDFService {
   }
 
   /**
-   * @description Save processed PDF data to file
+   * @description Save processed PDF data to in-memory storage
    * @param {string} filename - Original filename
    * @param {Array} processedChunks - Processed chunks
-   * @returns {Promise<string>} Path to saved data file
+   * @returns {Promise<string>} Memory storage key
    */
   async saveProcessedData(filename, processedChunks) {
     try {
-      const dataFilename = filename.replace('.pdf', '_processed.json');
-      const dataPath = path.join(this.uploadDir, dataFilename);
-      
       const dataToSave = {
         filename,
         processedAt: new Date().toISOString(),
         chunks: processedChunks
       };
 
-      fs.writeFileSync(dataPath, JSON.stringify(dataToSave, null, 2));
+      // Store in memory instead of filesystem
+      this.processedData.set(filename, dataToSave);
       
-      logger.info('PDFService', 'Processed data saved', { dataPath });
-      return dataPath;
+      logger.info('PDFService', 'Processed data saved to memory', { filename, chunksCount: processedChunks.length });
+      return `memory:${filename}`;
     } catch (error) {
       logger.error('PDFService', 'Failed to save processed data', { error: error.message });
       throw error;
@@ -280,12 +279,20 @@ class PDFService {
   }
 
   /**
-   * @description Load processed PDF data from file
+   * @description Load processed PDF data from memory
    * @param {string} filename - Original filename
    * @returns {Promise<Object>} Processed data
    */
   async loadProcessedData(filename) {
     try {
+      // Check in-memory storage first
+      if (this.processedData.has(filename)) {
+        const data = this.processedData.get(filename);
+        logger.info('PDFService', 'Processed data loaded from memory', { filename });
+        return data;
+      }
+
+      // Fallback to file system for backward compatibility
       const dataFilename = filename.replace('.pdf', '_processed.json');
       const dataPath = path.join(this.uploadDir, dataFilename);
       
@@ -294,7 +301,7 @@ class PDFService {
       }
 
       const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-      logger.info('PDFService', 'Processed data loaded', { dataPath });
+      logger.info('PDFService', 'Processed data loaded from file', { dataPath });
       return data;
     } catch (error) {
       logger.error('PDFService', 'Failed to load processed data', { error: error.message });

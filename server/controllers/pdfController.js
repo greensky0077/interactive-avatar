@@ -139,30 +139,37 @@ export const searchPDF = async (req, res) => {
  */
 export const listPDFs = async (req, res) => {
   try {
+    // Get PDFs from in-memory storage
+    const memoryPDFs = Array.from(pdfService.processedData.keys()).map(filename => ({
+      filename,
+      uploadDate: new Date() // Use current time as we don't store upload time in memory
+    }));
+
+    // Also check filesystem for backward compatibility
     const fs = await import('fs');
     const uploadDir = pdfService.uploadDir;
+    let fileSystemPDFs = [];
     
-    if (!fs.existsSync(uploadDir)) {
-      return res.json({
-        success: true,
-        data: {
-          pdfs: []
-        }
-      });
+    if (fs.existsSync(uploadDir)) {
+      const files = fs.readdirSync(uploadDir);
+      fileSystemPDFs = files
+        .filter(file => file.endsWith('.pdf'))
+        .map(file => ({
+          filename: file,
+          uploadDate: fs.statSync(path.join(uploadDir, file)).mtime
+        }));
     }
 
-    const files = fs.readdirSync(uploadDir);
-    const pdfFiles = files
-      .filter(file => file.endsWith('.pdf'))
-      .map(file => ({
-        filename: file,
-        uploadDate: fs.statSync(path.join(uploadDir, file)).mtime
-      }));
+    // Combine and deduplicate
+    const allPDFs = [...memoryPDFs, ...fileSystemPDFs];
+    const uniquePDFs = allPDFs.filter((pdf, index, self) => 
+      index === self.findIndex(p => p.filename === pdf.filename)
+    );
 
     res.json({
       success: true,
       data: {
-        pdfs: pdfFiles
+        pdfs: uniquePDFs
       }
     });
 
