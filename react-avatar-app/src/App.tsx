@@ -366,6 +366,101 @@ function App() {
     }
   };
 
+  // Comprehensive reconnection attempt
+  const attemptReconnection = async () => {
+    try {
+      addStatus('Attempting comprehensive reconnection...');
+      
+      // Step 1: Try ICE restart first
+      try {
+        await peerConnection.restartIce();
+        addStatus('ICE restart initiated...');
+        
+        // Wait for ICE gathering to complete
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('ICE gathering timeout'));
+          }, 15000);
+          
+          const checkICE = () => {
+            if (peerConnection.iceGatheringState === 'complete') {
+              clearTimeout(timeout);
+              resolve();
+            } else if (peerConnection.iceGatheringState === 'gathering') {
+              setTimeout(checkICE, 1000);
+            } else {
+              clearTimeout(timeout);
+              reject(new Error('ICE gathering failed'));
+            }
+          };
+          
+          checkICE();
+        });
+        
+        addStatus('ICE gathering completed. Checking connection...');
+        
+        // Wait a bit for connection to establish
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        if (peerConnection.iceConnectionState === 'connected' || 
+            peerConnection.iceConnectionState === 'completed') {
+          addStatus('Reconnection successful via ICE restart!');
+          return;
+        }
+      } catch (iceError) {
+        addStatus(`ICE restart failed: ${iceError.message}`);
+      }
+      
+      // Step 2: If ICE restart failed, try creating a new offer
+      addStatus('ICE restart failed, trying new offer...');
+      
+      try {
+        const newOffer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(newOffer);
+        
+        // Send the new offer to the server
+        const response = await fetch(SERVER_URL + "/persona/heygen/session/start", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            session_id: sessionInfo?.session_id,
+            sdp: newOffer
+          }),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data) {
+            const remoteDescription = new RTCSessionDescription(data.data.sdp);
+            await peerConnection.setRemoteDescription(remoteDescription);
+            addStatus('New offer sent and remote description set');
+            
+            // Wait for connection
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+            if (peerConnection.iceConnectionState === 'connected' || 
+                peerConnection.iceConnectionState === 'completed') {
+              addStatus('Reconnection successful via new offer!');
+              return;
+            }
+          }
+        }
+      } catch (offerError) {
+        addStatus(`New offer failed: ${offerError.message}`);
+      }
+      
+      // Step 3: If all else fails, suggest creating a new session
+      addStatus('All reconnection attempts failed. Please create a new session.');
+      throw new Error('Comprehensive reconnection failed');
+      
+    } catch (error) {
+      addStatus(`Reconnection error: ${error.message}`);
+      throw error;
+    }
+  };
+
   // Create a new Heygen session
   const createNewSession = async () => {
     if (!avatarID) {
@@ -515,27 +610,17 @@ function App() {
         
         // Handle connection state changes
         if (state === 'disconnected') {
-          addStatus('Connection lost. Attempting to restore...');
-          // Try to restore connection by gathering new ICE candidates
-          setTimeout(async () => {
-            if (peerConnection.iceConnectionState === 'disconnected') {
-              addStatus('Connection could not be restored. Attempting to reconnect...');
-              try {
-                // Try to restart ICE gathering
-                await peerConnection.restartIce();
-                addStatus('ICE restart initiated. Waiting for connection...');
-              } catch (error) {
-                addStatus(`ICE restart failed: ${error.message}. Please create a new session.`);
-                // Reset the connection state
-                setBotInitialized(false);
-                setShowVideo(false);
-              }
-            }
-          }, 2000);
+          addStatus('Connection lost. Will attempt reconnection in 30 seconds...');
+          // Don't immediately try to reconnect here - let the monitor handle it
         } else if (state === 'connected' || state === 'completed') {
           addStatus('Connection established!');
+          // Reset any reconnection flags
+          if (window.reconnectionAttempted) {
+            window.reconnectionAttempted = false;
+            addStatus('Reconnection successful!');
+          }
         } else if (state === 'failed') {
-          addStatus('Connection failed. Please try creating a new session.');
+          addStatus('Connection failed. Will attempt reconnection...');
         } else if (state === 'checking') {
           addStatus('Checking connection...');
         } else if (state === 'new') {
@@ -577,8 +662,9 @@ function App() {
 
       // Add connection monitoring with retry logic
       let connectionRetryCount = 0;
-      const maxRetries = 2; // Reduced from 3 to 2
+      const maxRetries = 2;
       let lastConnectionCheck = Date.now();
+      let isReconnecting = false;
       
       const connectionMonitor = setInterval(async () => {
         const now = Date.now();
@@ -587,18 +673,19 @@ function App() {
         if (peerConnection.iceConnectionState === 'disconnected' || 
             peerConnection.iceConnectionState === 'failed') {
           
-          // Only retry if enough time has passed since last check (30 seconds)
-          if (timeSinceLastCheck > 30000 && connectionRetryCount < maxRetries) {
+          // Only retry if enough time has passed since last check (30 seconds) and not already reconnecting
+          if (timeSinceLastCheck > 30000 && connectionRetryCount < maxRetries && !isReconnecting) {
             connectionRetryCount++;
             lastConnectionCheck = now;
+            isReconnecting = true;
             addStatus(`Connection lost detected. Retry attempt ${connectionRetryCount}/${maxRetries}...`);
             
             try {
-              // Try to restart ICE gathering
-              await peerConnection.restartIce();
-              addStatus('ICE restart initiated. Waiting for connection...');
+              // Try comprehensive reconnection
+              await attemptReconnection();
             } catch (error) {
-              addStatus(`ICE restart failed: ${error.message}`);
+              addStatus(`Reconnection failed: ${error.message}`);
+              isReconnecting = false;
             }
           } else if (connectionRetryCount >= maxRetries) {
             addStatus('Connection lost detected. Maximum retries reached. Please create a new session.');
@@ -611,8 +698,9 @@ function App() {
           // Reset retry count on successful connection
           connectionRetryCount = 0;
           lastConnectionCheck = now;
+          isReconnecting = false;
         }
-      }, 15000); // Check every 15 seconds (increased from 10)
+      }, 15000); // Check every 15 seconds
       
       // Clear monitor after 10 minutes (increased from 5)
       setTimeout(() => {
@@ -852,17 +940,16 @@ function App() {
       return;
     }
     
-    addStatus("Attempting to reconnect...");
+    if (!peerConnection) {
+      addStatus("No active connection to restart. Please create a new session.");
+      return;
+    }
+    
+    addStatus("Manual reconnection triggered...");
     try {
-      // Try to restart ICE gathering
-      if (peerConnection) {
-        await peerConnection.restartIce();
-        addStatus("ICE restart initiated. Waiting for connection...");
-      } else {
-        addStatus("No active connection to restart. Please create a new session.");
-      }
+      await attemptReconnection();
     } catch (error) {
-      addStatus(`Reconnection failed: ${error.message}`);
+      addStatus(`Manual reconnection failed: ${error.message}`);
     }
   };
 
