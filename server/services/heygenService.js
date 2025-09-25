@@ -38,6 +38,8 @@ class HeygenService {
           'X-Api-Key': this.apiKey,
         },
         body: JSON.stringify(requestBody),
+        // Add timeout for slow networks
+        signal: AbortSignal.timeout(30000) // 30 second timeout
       });
 
       const data = await response.json();
@@ -58,6 +60,10 @@ class HeygenService {
       
       return data.data;
     } catch (error) {
+      if (error.name === 'TimeoutError') {
+        logger.error('HeygenService', 'Session creation timeout', { error: error.message });
+        throw new Error('HeyGen API timeout: Session creation took too long. Please check your network connection.');
+      }
       logger.error('HeygenService', 'Session creation failed', { error: error.message });
       throw new Error(`HeyGen API error: ${error.message}`);
     }
@@ -78,6 +84,8 @@ class HeygenService {
           'X-Api-Key': this.apiKey,
         },
         body: JSON.stringify({ session_id, sdp }),
+        // Add timeout for slow networks
+        signal: AbortSignal.timeout(30000) // 30 second timeout
       });
 
       const data = await response.json();
@@ -88,6 +96,10 @@ class HeygenService {
       
       return data.data || { success: true };
     } catch (error) {
+      if (error.name === 'TimeoutError') {
+        logger.error('HeygenService', 'Session start timeout', { error: error.message });
+        throw new Error('HeyGen API timeout: Session start took too long. Please check your network connection.');
+      }
       logger.error('HeygenService', 'Session start failed', { error: error.message });
       throw new Error(`HeyGen API error: ${error.message}`);
     }
@@ -101,6 +113,8 @@ class HeygenService {
         'X-Api-Key': this.apiKey,
       },
       body: JSON.stringify({ session_id, candidate }),
+      // Add timeout for slow networks
+      signal: AbortSignal.timeout(10000) // 10 second timeout for ICE
     });
 
     const data = await response.json();
@@ -118,6 +132,8 @@ class HeygenService {
         'X-Api-Key': this.apiKey,
       },
       body: JSON.stringify({ session_id, text }),
+      // Add timeout for slow networks
+      signal: AbortSignal.timeout(15000) // 15 second timeout for text sending
     });
 
     const data = await response.json();

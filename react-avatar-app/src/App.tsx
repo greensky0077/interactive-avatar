@@ -417,12 +417,22 @@ function App() {
       // session created
       
 
-      // Create RTCPeerConnection
+      // Create RTCPeerConnection with enhanced configuration for slow networks
       const iceServers = data.data.ice_servers2 || [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' }
       ];
-      const newPeerConnection = new RTCPeerConnection({ iceServers });
+      
+      const newPeerConnection = new RTCPeerConnection({ 
+        iceServers,
+        iceCandidatePoolSize: 10,
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require',
+        iceTransportPolicy: 'all'
+      });
 
       newPeerConnection.ontrack = (event) => {
         if (event.track.kind === "audio" || event.track.kind === "video") {
@@ -487,6 +497,11 @@ function App() {
       // Handle ICE gathering state changes
       peerConnection.onicegatheringstatechange = () => {
         addStatus(`ICE gathering state: ${peerConnection.iceGatheringState}`);
+        
+        // If gathering is complete, we have all candidates
+        if (peerConnection.iceGatheringState === 'complete') {
+          addStatus('ICE gathering completed - all candidates collected');
+        }
       };
 
       peerConnection.oniceconnectionstatechange = () => {
@@ -562,14 +577,20 @@ function App() {
 
       // Add connection monitoring with retry logic
       let connectionRetryCount = 0;
-      const maxRetries = 3;
+      const maxRetries = 2; // Reduced from 3 to 2
+      let lastConnectionCheck = Date.now();
       
       const connectionMonitor = setInterval(async () => {
+        const now = Date.now();
+        const timeSinceLastCheck = now - lastConnectionCheck;
+        
         if (peerConnection.iceConnectionState === 'disconnected' || 
             peerConnection.iceConnectionState === 'failed') {
           
-          if (connectionRetryCount < maxRetries) {
+          // Only retry if enough time has passed since last check (30 seconds)
+          if (timeSinceLastCheck > 30000 && connectionRetryCount < maxRetries) {
             connectionRetryCount++;
+            lastConnectionCheck = now;
             addStatus(`Connection lost detected. Retry attempt ${connectionRetryCount}/${maxRetries}...`);
             
             try {
@@ -579,30 +600,63 @@ function App() {
             } catch (error) {
               addStatus(`ICE restart failed: ${error.message}`);
             }
-          } else {
+          } else if (connectionRetryCount >= maxRetries) {
             addStatus('Connection lost detected. Maximum retries reached. Please create a new session.');
             clearInterval(connectionMonitor);
             setBotInitialized(false);
             setShowVideo(false);
           }
-        } else if (peerConnection.iceConnectionState === 'connected') {
+        } else if (peerConnection.iceConnectionState === 'connected' || 
+                   peerConnection.iceConnectionState === 'completed') {
           // Reset retry count on successful connection
           connectionRetryCount = 0;
+          lastConnectionCheck = now;
         }
-      }, 10000); // Check every 10 seconds
+      }, 15000); // Check every 15 seconds (increased from 10)
       
-      // Clear monitor after 5 minutes
+      // Clear monitor after 10 minutes (increased from 5)
       setTimeout(() => {
         clearInterval(connectionMonitor);
-      }, 300000);
+      }, 600000);
 
-      // Set jitter buffer
+      // Set jitter buffer for better audio quality on slow networks
       const receivers = peerConnection.getReceivers();
       receivers.forEach((receiver) => {
         if (receiver.jitterBufferTarget !== undefined) {
-          receiver.jitterBufferTarget = 500;
+          receiver.jitterBufferTarget = 1000; // Increased for slow networks
         }
       });
+
+      // Add connection quality monitoring
+      const connectionQualityMonitor = setInterval(() => {
+        if (peerConnection.iceConnectionState === 'connected' || 
+            peerConnection.iceConnectionState === 'completed') {
+          const stats = peerConnection.getStats();
+          stats.then((report) => {
+            let audioPacketsLost = 0;
+            let audioPacketsReceived = 0;
+            
+            report.forEach((stat) => {
+              if (stat.type === 'inbound-rtp' && stat.mediaType === 'audio') {
+                audioPacketsLost += stat.packetsLost || 0;
+                audioPacketsReceived += stat.packetsReceived || 0;
+              }
+            });
+            
+            if (audioPacketsReceived > 0) {
+              const lossRate = (audioPacketsLost / (audioPacketsLost + audioPacketsReceived)) * 100;
+              if (lossRate > 5) { // More than 5% packet loss
+                addStatus(`High packet loss detected: ${lossRate.toFixed(1)}%`);
+              }
+            }
+          });
+        }
+      }, 30000); // Check every 30 seconds
+
+      // Clear quality monitor after 10 minutes
+      setTimeout(() => {
+        clearInterval(connectionQualityMonitor);
+      }, 600000);
 
       addStatus("Session started successfully");
       setShowVideo(true);
